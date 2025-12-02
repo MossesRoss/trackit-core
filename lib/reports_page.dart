@@ -1,30 +1,16 @@
 /*
  * @author Mosses
- * @version 1.5.0
+ * @version 1.5.1
  * --- CHANGELOG ---
- * v1.5.0:
- * - [FEAT] Reports page now checks for an active goal before building.
- * If no active goal is found, it displays "Set goal first."
- * - [FIX] Cleaned up redundant "no active goal" check in `OverallReportView`
- * as it is now handled by the parent `ReportsPage`.
- * - [FIX] `ArchivedGoalCard` in Yearly tab now uses theme-aware colors
- * (`primaryContainer`/`errorContainer`) to fix dark mode visibility.
- * v1.4.0:
- * - [FIX] Changed `OverallReportView` to use a `StreamBuilder` on
- * `firestoreService.getGoalsStream()` instead of relying on a
- * prop-drilled `activeGoal`. This fixes a bug where the 'Overall'
- * tab would show stale data after a notification action.
- * - [FEAT] Removed `activeGoal` parameter from `ReportsPage` as it's
- * no longer needed.
+ * v1.5.1:
+ * - [FIX] Updated import path for `sexy_chart.dart` (removed `widgets/`).
  */
 import 'package:flutter/material.dart';
-import 'package:fl_chart/fl_chart.dart'; // Import fl_chart
-// import 'package:intl/intl.dart';
+import 'package:fl_chart/fl_chart.dart';
 import 'package:provider/provider.dart';
-// FIX: Added missing import for data models.
 import './models.dart';
 import './services.dart';
-import './widgets/sexy_chart.dart';
+import 'package:trackit/widgets/sexy_chart.dart'; // FIX: Direct import
 
 // --- PERFORMANCE FIX: Removed LayoutBuilder ---
 class ProgressPieChart extends StatelessWidget {
@@ -81,9 +67,6 @@ class ProgressPieChart extends StatelessWidget {
 }
 
 class ReportsPage extends StatefulWidget {
-  // --- FIX: Removed activeGoal property ---
-  // final Goal? activeGoal;
-  // const ReportsPage({super.key, this.activeGoal});
   const ReportsPage({super.key});
 
   @override
@@ -94,25 +77,18 @@ class _ReportsPageState extends State<ReportsPage>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
 
-  // --- FIX: Define streams as state variables ---
   late Stream<Map<String, dynamic>> _weeklyReportStream;
   late Stream<Map<String, dynamic>> _monthlyReportStream;
   late Stream<Map<String, dynamic>> _yearlyReportStream;
-  // --- FIX: Add goals stream to check for active goal ---
   late Stream<List<Goal>> _goalsStream;
 
   @override
   void initState() {
     super.initState();
-    // --- FIX: Add new tab ---
     _tabController = TabController(length: 4, vsync: this);
 
-    // --- FIX: Get service and initialize streams ONCE ---
-    // We use listen: false because this should only run once
-    // and not cause initState to re-run if the provider changes.
     final firestoreService =
         Provider.of<FirestoreService>(context, listen: false);
-    // --- FIX: Initialize goals stream ---
     _goalsStream = firestoreService.getGoalsStream();
     _weeklyReportStream = firestoreService.getWeeklyReport();
     _monthlyReportStream = firestoreService.getMonthlyReport();
@@ -127,16 +103,12 @@ class _ReportsPageState extends State<ReportsPage>
 
   @override
   Widget build(BuildContext context) {
-    // This call is no longer needed here:
-    // final firestoreService = Provider.of<FirestoreService>(context);
-
     return Scaffold(
       appBar: AppBar(
         title: const Text('My Reports'),
         bottom: TabBar(
           controller: _tabController,
           tabs: const [
-            // --- FIX: Add new 'Overall' tab ---
             Tab(text: 'Overall'),
             Tab(text: 'Weekly'),
             Tab(text: 'Monthly'),
@@ -144,7 +116,6 @@ class _ReportsPageState extends State<ReportsPage>
           ],
         ),
       ),
-      // --- FIX: Wrap body in StreamBuilder to check for active goal ---
       body: StreamBuilder<List<Goal>>(
         stream: _goalsStream,
         builder: (context, snapshot) {
@@ -152,7 +123,6 @@ class _ReportsPageState extends State<ReportsPage>
             return const Center(child: CircularProgressIndicator());
           }
           if (!snapshot.hasData) {
-            // This case also catches errors, though snapshot.hasError is better
             return const Center(child: Text("Loading..."));
           }
 
@@ -165,13 +135,12 @@ class _ReportsPageState extends State<ReportsPage>
             activeGoal = null;
           }
 
-          // If no active goal, show message
           if (activeGoal == null) {
             return const Center(
               child: Padding(
                 padding: EdgeInsets.all(16.0),
                 child: Text(
-                  "Set goal first", // <-- User's requested text
+                  "Set goal first",
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 16, fontStyle: FontStyle.italic),
                 ),
@@ -179,15 +148,10 @@ class _ReportsPageState extends State<ReportsPage>
             );
           }
 
-          // If active goal exists, show the TabBarView
           return TabBarView(
             controller: _tabController,
             children: [
-              // --- FIX: Remove activeGoal property ---
               const OverallReportView(),
-              // Was: OverallReportView(activeGoal: widget.activeGoal),
-
-              // --- FIX: Pass the persistent streams from state ---
               ReportView(
                 title: 'Weekly Report',
                 reportStream: _weeklyReportStream,
@@ -205,7 +169,6 @@ class _ReportsPageState extends State<ReportsPage>
           );
         },
       ),
-      // --- End of fix ---
     );
   }
 }
@@ -233,46 +196,29 @@ class OverallReportView extends StatelessWidget {
             activeGoal = null;
           }
 
-          // --- FIX: Removed redundant "No active goal" message ---
-          // This is now handled by the parent ReportsPage
           if (activeGoal == null) {
-            // This should technically not be reached if parent is fixed
             return const Center(child: Text("Loading..."));
           }
 
           if (activeGoal.totalTasks == 0) {
-            // --- End of fix ---
             return const Center(
               child: Padding(
                 padding: EdgeInsets.all(16.0),
                 child: Text(
-                  // "No active goal to display. Set a goal and complete tasks to see your progress here.",
-                  // --- FIX: Changed message to be specific to this case ---
                   "No tasks added to your active goal yet.",
-                  // --- End of fix ---
                   textAlign: TextAlign.center,
                 ),
               ),
             );
           }
 
-          // --- FIX: WRAP THE WIDGET IN A SingleChildScrollView ---
           return SingleChildScrollView(
             child: Center(
-              // --- STYLE: Add padding and change alignment ---
               child: Padding(
-                // Added top and bottom padding for scrolling room
                 padding: const EdgeInsets.symmetric(vertical: 32.0),
                 child: Column(
-                  mainAxisAlignment: MainAxisAlignment.start, // <-- FIX
+                  mainAxisAlignment: MainAxisAlignment.start,
                   children: [
-                    // --- STYLE: Remove redundant title ---
-                    // const Text(
-                    //   "Overall Goal Progress",
-                    //   style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                    // ),
-                    // --- STYLE: Remove extra space ---
-                    // const SizedBox(height: 24),
                     SexyProgressChart(
                       isDark: Theme.of(context).brightness == Brightness.dark,
                     ),
@@ -287,14 +233,12 @@ class OverallReportView extends StatelessWidget {
 
 class ReportView extends StatelessWidget {
   final String title;
-  // --- FIX: Change from Future to Stream ---
   final Stream<Map<String, dynamic>> reportStream;
   final bool isYearly;
 
   const ReportView({
     super.key,
     required this.title,
-    // --- FIX: Update constructor ---
     required this.reportStream,
     this.isYearly = false,
   });
@@ -309,9 +253,7 @@ class ReportView extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // --- FIX: Change to StreamBuilder ---
     return StreamBuilder<Map<String, dynamic>>(
-      // --- FIX: Use the new stream ---
       stream: reportStream,
       builder: (context, snapshot) {
         if (snapshot.connectionState == ConnectionState.waiting) {
@@ -331,7 +273,6 @@ class ReportView extends StatelessWidget {
         final previousPeriod =
             reportData['previousPeriod'] as Map<String, dynamic>;
         final summary = reportData['summary'] as String?;
-        // --- FIX: Ensure checkinCounts is not null ---
         final checkinCounts =
             (currentPeriod['checkinCounts'] as Map<TaskCheckinStatus, int>?) ??
                 {};
@@ -347,8 +288,6 @@ class ReportView extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.all(16),
           children: [
-            // --- FIX: Removed Pie Chart from here ---
-
             if (summary != null && summary.isNotEmpty) ...[
               const Text(
                 "Your Monthly Summary",
@@ -381,7 +320,6 @@ class ReportView extends StatelessWidget {
               comparisonTasks: currentTasks - previousTasks,
             ),
             const SizedBox(height: 24),
-            // --- NEW: Check-in Summary Card ---
             const Text(
               "Check-in Summary",
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
@@ -407,7 +345,6 @@ class ReportView extends StatelessWidget {
   }
 }
 
-// --- NEW: Card to display check-in summary ---
 class CheckinSummaryCard extends StatelessWidget {
   final Map<TaskCheckinStatus, int> checkinCounts;
   const CheckinSummaryCard({super.key, required this.checkinCounts});
@@ -441,7 +378,6 @@ class CheckinSummaryCard extends StatelessWidget {
   }
 }
 
-// --- NEW: Row for the check-in summary card ---
 class CheckinRow extends StatelessWidget {
   final TaskCheckinStatus status;
   final int count;
@@ -489,7 +425,6 @@ class CheckinRow extends StatelessWidget {
   }
 }
 
-// --- NEW: Card to display an archived goal ---
 class ArchivedGoalCard extends StatelessWidget {
   final Goal goal;
   const ArchivedGoalCard({super.key, required this.goal});
@@ -498,30 +433,28 @@ class ArchivedGoalCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final isAchieved = goal.status == GoalStatus.achieved;
 
-    // --- FIX: Use theme-aware colors for dark mode ---
     final Color cardColor = isAchieved
         ? Theme.of(context).colorScheme.primaryContainer
         : Theme.of(context).colorScheme.errorContainer;
     final Color contentColor = isAchieved
         ? Theme.of(context).colorScheme.onPrimaryContainer
         : Theme.of(context).colorScheme.onErrorContainer;
-    // --- End of fix ---
 
     return Card(
-      color: cardColor, // <-- FIX
+      color: cardColor,
       child: ListTile(
         leading: Icon(
           isAchieved ? Icons.emoji_events_rounded : Icons.flag_rounded,
-          color: contentColor, // <-- FIX
+          color: contentColor,
         ),
         title: Text(goal.title,
             style: TextStyle(
               fontWeight: FontWeight.bold,
-              color: contentColor, // <-- FIX
+              color: contentColor,
             )),
         subtitle: Text(
           isAchieved ? 'Achieved!' : 'Given Up',
-          style: TextStyle(color: contentColor.withAlpha(204)), // <-- FIX
+          style: TextStyle(color: contentColor.withAlpha(204)),
         ),
       ),
     );
@@ -531,7 +464,7 @@ class ArchivedGoalCard extends StatelessWidget {
 class ReportCard extends StatelessWidget {
   final String timeSpent;
   final String tasksCompleted;
-  final int comparisonTime; // in seconds
+  final int comparisonTime;
   final int comparisonTasks;
 
   const ReportCard({
