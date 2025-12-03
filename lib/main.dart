@@ -1,7 +1,9 @@
 /*
  * @author Mosses
- * @version 1.8.1
+ * @version 1.8.2
  * --- CHANGELOG ---
+ * v1.8.2:
+ * - [TODO] Implement draggable milestones in Edit Mode for reordering (Deferred).
  * v1.8.1:
  * - [REFACTOR] Removed inline `ReportsPage` class.
  * - [FEAT] Imported external `reports_page.dart`.
