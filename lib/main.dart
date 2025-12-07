@@ -1,17 +1,13 @@
 /*
  * @author Mosses
- * @version 1.8.2
+ * @version 1.9.1
  * --- CHANGELOG ---
- * v1.8.2:
- * - [TODO] Implement draggable milestones in Edit Mode for reordering (Deferred).
- * v1.8.1:
- * - [REFACTOR] Removed inline `ReportsPage` class.
- * - [FEAT] Imported external `reports_page.dart`.
- * - [FEAT] Added `ReportsPage` to navigation (Index 1).
- * v1.8.0:
- * - [FEAT] Reports Page Finalization logic integrated.
- * v1.7.1:
- * - [FIX] `onPressed` in check-in dialog is now `async`.
+ * v1.9.1:
+ * - [FIX] Ensured strict imports for `milestones_page.dart` and `settings_page.dart`.
+ * v1.9.0:
+ * - [REFACTOR] Replaced `MilestonesPage` from `ui.dart` with local modular file.
+ * - [FEAT] Enabled Drag-and-Drop for Milestones.
+ * - [FEAT] Added Swipe-to-Switch gesture on Avatar.
  */
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
@@ -31,10 +27,12 @@ import 'firebase_options.dart';
 
 import './models.dart';
 import './services.dart';
-import './ui.dart';
+import './ui.dart'; // Keeping ui.dart for HomePage only
 import './auth_screen.dart';
 import './notification_service.dart';
-import 'reports_page.dart'; // FIX: Imported Reports Page
+import 'reports_page.dart'; 
+import 'milestones_page.dart'; // NEW: Imported Draggable Milestones
+import 'settings_page.dart';   // NEW: Imported Stealth Settings
 
 // --- Keys for SharedPreferences Timer Recovery ---
 const String kRecoveryTimeKey = 'recovery_time_seconds';
@@ -447,7 +445,7 @@ class _MainPageState extends State<MainPage> {
       }
       final newGoal = Goal(title: goalTitle);
       _allGoals.add(newGoal);
-      _selectedIndex = 2; // FIX: Go to milestones page (Index 2 now)
+      _selectedIndex = 2; // FIX: Go to milestones page
     });
     _saveGoals();
 
@@ -681,8 +679,8 @@ class _MainPageState extends State<MainPage> {
         onTimeAdd: _addTimeToMilestone,
         onGiveUp: _giveUpGoal,
       ),
-      // --- FIX: Added Reports Page at Index 1 ---
       const ReportsPage(),
+      // --- UPDATED: Use the new class from milestones_page.dart ---
       MilestonesPage(
         key: _milestonesPageKey,
         activeGoal: _activeGoal,
@@ -691,6 +689,7 @@ class _MainPageState extends State<MainPage> {
         onDeleteMilestone: _deleteMilestone,
         editMode: _editMode,
       ),
+      // --- UPDATED: Use the new class from settings_page.dart ---
       SettingsPage(
         isDarkMode: themeProvider.isDarkMode,
         toggleDarkMode: themeProvider.toggleTheme,
@@ -714,7 +713,6 @@ class _MainPageState extends State<MainPage> {
             selectedIcon: Icon(Icons.home_rounded),
             label: 'Home',
           ),
-          // --- FIX: Added Reports Tab ---
           NavigationDestination(
             icon: Icon(Icons.bar_chart_outlined),
             selectedIcon: Icon(Icons.bar_chart_rounded),
