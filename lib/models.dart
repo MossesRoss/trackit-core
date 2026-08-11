@@ -149,6 +149,7 @@ class Milestone {
   List<String> completedCheckpointIds;
   bool isUnlocked;
   int timeSpentSeconds;
+  DateTime? completedAt;
 
   Milestone({
     required this.title,
