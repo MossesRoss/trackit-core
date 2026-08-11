@@ -1,7 +1,10 @@
 /*
  * @author Mosses
- * @version 1.9.1
+ * @version 2.0.0
  * --- CHANGELOG ---
+ * v2.0.0:
+ * - [FEAT] Ironman HUD gesture-based navigation with glassmorphism overlay.
+ * - [FEAT] Drag-to-scrub page switching with haptic feedback.
  * v1.9.1:
  * - [FIX] Ensured strict imports for `milestones_page.dart` and `settings_page.dart`.
  * v1.9.0:
@@ -9,6 +12,7 @@
  * - [FEAT] Enabled Drag-and-Drop for Milestones.
  * - [FEAT] Added Swipe-to-Switch gesture on Avatar.
  */
+import 'dart:ui'; // For ImageFilter (Glassmorphism)
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -30,9 +34,9 @@ import './services.dart';
 import './ui.dart'; // Keeping ui.dart for HomePage only
 import './auth_screen.dart';
 import './notification_service.dart';
-import 'reports_page.dart'; 
+import 'reports_page.dart';
 import 'milestones_page.dart'; // NEW: Imported Draggable Milestones
-import 'settings_page.dart';   // NEW: Imported Stealth Settings
+import 'settings_page.dart'; // NEW: Imported Stealth Settings
 
 // --- Keys for SharedPreferences Timer Recovery ---
 const String kRecoveryTimeKey = 'recovery_time_seconds';
@@ -240,9 +244,24 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> {
   int _selectedIndex = 0;
+  int _previewIndex = 0; // Active candidate index while dragging
   List<Goal> _allGoals = [];
   bool _editMode = true;
   bool _isLoading = true;
+
+  // --- JARVIS / HUD Gesture Controller States ---
+  bool _isDragging = false;
+  bool _isNavUnlocked = false;
+  Offset _touchPosition = Offset.zero;
+  double _dragStartY = 0;
+  double _dragAnchorX = 0;
+
+  final List<String> _pageNames = [
+    'HOME',
+    'REPORTS',
+    'MILESTONES',
+    'SETTINGS',
+  ];
 
   Goal? get _activeGoal {
     try {
@@ -376,7 +395,8 @@ class _MainPageState extends State<MainPage> {
 
     try {
       debugPrint("[DEBUG] Recovering timer...");
-      final recoveredSecondsString = await _storage.read(key: kRecoveryTimeKey);
+      final recoveredSecondsString =
+          await _storage.read(key: kRecoveryTimeKey);
       final recoveredMilestoneId =
           await _storage.read(key: kRecoveryMilestoneKey);
 
@@ -403,7 +423,8 @@ class _MainPageState extends State<MainPage> {
         }
       }
     } catch (e) {
-      debugPrint("[DEBUG] RECOVERY ERROR: Failed to process recovery data: $e");
+      debugPrint(
+          "[DEBUG] RECOVERY ERROR: Failed to process recovery data: $e");
       try {
         await _storage.delete(key: kRecoveryTimeKey);
         await _storage.delete(key: kRecoveryMilestoneKey);
@@ -425,12 +446,6 @@ class _MainPageState extends State<MainPage> {
     final persistenceService =
         Provider.of<FirestoreService>(context, listen: false);
     await persistenceService.saveGoals(_allGoals);
-  }
-
-  void _onTabTapped(int index) {
-    setState(() {
-      _selectedIndex = index;
-    });
   }
 
   void _setMainGoal(String goalTitle) {
@@ -510,8 +525,8 @@ class _MainPageState extends State<MainPage> {
 
   Future<void> _toggleCheckpoint(
       Milestone milestone, String checkpointId) async {
-    
-    final persistenceService = Provider.of<FirestoreService>(context, listen: false);
+    final persistenceService =
+        Provider.of<FirestoreService>(context, listen: false);
     bool isCompleted = false;
 
     setState(() {
@@ -531,11 +546,7 @@ class _MainPageState extends State<MainPage> {
 
     if (_activeGoal != null) {
       await persistenceService.recordTaskCompletion(
-        _activeGoal!.id, 
-        milestone.id, 
-        checkpointId, 
-        isCompleted
-      );
+          _activeGoal!.id, milestone.id, checkpointId, isCompleted);
     }
 
     _updateMilestoneLockStatus();
@@ -617,11 +628,14 @@ class _MainPageState extends State<MainPage> {
     _saveGoals();
   }
 
-  Future<void> _addTimeToMilestone(String milestoneId, Duration timeToAdd) async {
+  Future<void> _addTimeToMilestone(
+      String milestoneId, Duration timeToAdd) async {
     if (_activeGoal == null || timeToAdd.inSeconds <= 0) return;
 
-    final persistenceService = Provider.of<FirestoreService>(context, listen: false);
-    await persistenceService.addTimeSession(_activeGoal!.id, milestoneId, timeToAdd);
+    final persistenceService =
+        Provider.of<FirestoreService>(context, listen: false);
+    await persistenceService.addTimeSession(
+        _activeGoal!.id, milestoneId, timeToAdd);
 
     setState(() {
       Milestone? milestone;
@@ -637,10 +651,12 @@ class _MainPageState extends State<MainPage> {
     _saveGoals();
   }
 
-  Future<void> recordTaskCheckin(String goalId, String milestoneId, String checkpointId,
-      TaskCheckinStatus status) async {
-    final persistenceService = Provider.of<FirestoreService>(context, listen: false);
-    await persistenceService.recordTaskCheckin(goalId, milestoneId, checkpointId, status);
+  Future<void> recordTaskCheckin(String goalId, String milestoneId,
+      String checkpointId, TaskCheckinStatus status) async {
+    final persistenceService =
+        Provider.of<FirestoreService>(context, listen: false);
+    await persistenceService.recordTaskCheckin(
+        goalId, milestoneId, checkpointId, status);
   }
 
   void _updateMilestoneLockStatus() {
@@ -675,7 +691,6 @@ class _MainPageState extends State<MainPage> {
         onGiveUp: _giveUpGoal,
       ),
       const ReportsPage(),
-      // --- UPDATED: Use the new class from milestones_page.dart ---
       MilestonesPage(
         activeGoal: _activeGoal,
         onAddMilestone: _addMilestone,
@@ -683,7 +698,6 @@ class _MainPageState extends State<MainPage> {
         onDeleteMilestone: _deleteMilestone,
         editMode: _editMode,
       ),
-      // --- UPDATED: Use the new class from settings_page.dart ---
       SettingsPage(
         isDarkMode: themeProvider.isDarkMode,
         toggleDarkMode: themeProvider.toggleTheme,
@@ -694,39 +708,214 @@ class _MainPageState extends State<MainPage> {
     ];
 
     return Scaffold(
-      body: IndexedStack(
-        index: _selectedIndex,
-        children: pages,
-      ),
-      bottomNavigationBar: NavigationBar(
-        onDestinationSelected: _onTabTapped,
-        selectedIndex: _selectedIndex,
-        destinations: const <Widget>[
-          NavigationDestination(
-            icon: Icon(Icons.home_outlined),
-            selectedIcon: Icon(Icons.home_rounded),
-            label: 'Home',
+      body: Stack(
+        children: [
+          // 1. Core Page View
+          IndexedStack(
+            index: _selectedIndex,
+            children: pages,
           ),
-          NavigationDestination(
-            icon: Icon(Icons.bar_chart_outlined),
-            selectedIcon: Icon(Icons.bar_chart_rounded),
-            label: 'Reports',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.account_tree_outlined),
-            selectedIcon: Icon(Icons.account_tree_rounded),
-            label: 'Milestones',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.settings_outlined),
-            selectedIcon: Icon(Icons.settings_rounded),
-            label: 'Settings',
+
+          // 2. Glassmorphism HUD Fullscreen Preview (Active during unlocked scrub)
+          if (_isDragging && _isNavUnlocked)
+            Positioned.fill(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                child: Container(
+                  color: Colors.black.withValues(alpha: 0.4),
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          _pageNames[_previewIndex],
+                          style: const TextStyle(
+                            color: Colors.cyanAccent,
+                            fontSize: 32,
+                            fontWeight: FontWeight.w900,
+                            letterSpacing: 6,
+                            shadows: [
+                              Shadow(
+                                color: Colors.cyan,
+                                blurRadius: 20,
+                              )
+                            ],
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        Text(
+                          "PAGE ${_previewIndex + 1} OF ${_pageNames.length}",
+                          style: TextStyle(
+                            color: Colors.white.withValues(alpha: 0.6),
+                            fontSize: 12,
+                            letterSpacing: 2,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // 3. Dynamic Interactive Touch HUD Ring (Follows Finger)
+          if (_isDragging)
+            Positioned(
+              left: _touchPosition.dx - 35,
+              top: _touchPosition.dy - 35,
+              child: IgnorePointer(
+                child: AnimatedContainer(
+                  duration: const Duration(milliseconds: 50),
+                  width: 70,
+                  height: 70,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color:
+                          _isNavUnlocked ? Colors.cyanAccent : Colors.white70,
+                      width: _isNavUnlocked ? 3 : 2,
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color:
+                            (_isNavUnlocked ? Colors.cyanAccent : Colors.white)
+                                .withValues(alpha: 0.5),
+                        blurRadius: _isNavUnlocked ? 25 : 10,
+                        spreadRadius: 2,
+                      ),
+                    ],
+                  ),
+                  child: Center(
+                    child: Container(
+                      width: 12,
+                      height: 12,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color:
+                            _isNavUnlocked ? Colors.cyanAccent : Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+
+          // 4. Ben 10 Style Bottom Omnitrix Dial Overlay (When Unlocked)
+          if (_isDragging && _isNavUnlocked)
+            Positioned(
+              bottom: 60,
+              left: 0,
+              right: 0,
+              child: IgnorePointer(
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(_pageNames.length, (index) {
+                    final bool isSelected = index == _previewIndex;
+                    return AnimatedContainer(
+                      duration: const Duration(milliseconds: 150),
+                      margin: const EdgeInsets.symmetric(horizontal: 6),
+                      width: isSelected ? 28 : 10,
+                      height: 10,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(5),
+                        color: isSelected ? Colors.cyanAccent : Colors.white24,
+                        boxShadow: isSelected
+                            ? [
+                                const BoxShadow(
+                                  color: Colors.cyanAccent,
+                                  blurRadius: 10,
+                                )
+                              ]
+                            : [],
+                      ),
+                    );
+                  }),
+                ),
+              ),
+            ),
+
+          // 5. Stealth Touch Zone & Gesture Engine
+          Positioned(
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: 100, // Bottom activation field
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onPanStart: (details) {
+                setState(() {
+                  _isDragging = true;
+                  _touchPosition = details.globalPosition;
+                  _dragStartY = details.globalPosition.dy;
+                  _dragAnchorX = details.globalPosition.dx;
+                  _isNavUnlocked = false;
+                  _previewIndex = _selectedIndex;
+                });
+                HapticFeedback.selectionClick();
+              },
+              onPanUpdate: (details) {
+                setState(() {
+                  _touchPosition = details.globalPosition;
+                });
+
+                double dy = details.globalPosition.dy - _dragStartY;
+
+                // Threshold Check: Pull up 40px to unlock HUD
+                if (dy < -40 && !_isNavUnlocked) {
+                  setState(() {
+                    _isNavUnlocked = true;
+                    _dragAnchorX = details.globalPosition.dx;
+                  });
+                  HapticFeedback
+                      .heavyImpact(); // Tactile feedback on lock release
+                }
+
+                // Scrub Left / Right through pages
+                if (_isNavUnlocked) {
+                  double dx = details.globalPosition.dx - _dragAnchorX;
+
+                  if (dx > 50) {
+                    // Swiped Right -> Previous Page
+                    if (_previewIndex > 0) {
+                      setState(() {
+                        _previewIndex--;
+                        _dragAnchorX = details.globalPosition.dx;
+                      });
+                      HapticFeedback.selectionClick();
+                    }
+                  } else if (dx < -50) {
+                    // Swiped Left -> Next Page
+                    if (_previewIndex < pages.length - 1) {
+                      setState(() {
+                        _previewIndex++;
+                        _dragAnchorX = details.globalPosition.dx;
+                      });
+                      HapticFeedback.selectionClick();
+                    }
+                  }
+                }
+              },
+              onPanEnd: (_) {
+                if (_isNavUnlocked && _previewIndex != _selectedIndex) {
+                  setState(() {
+                    _selectedIndex = _previewIndex;
+                  });
+                  HapticFeedback.mediumImpact();
+                }
+
+                setState(() {
+                  _isDragging = false;
+                  _isNavUnlocked = false;
+                });
+              },
+            ),
           ),
         ],
       ),
     );
   }
 
+  // --- Check-in Dialog (from notification tap) ---
   Future<void> _showCheckinDialog(NotificationResponse response) async {
     if (!mounted) return;
 

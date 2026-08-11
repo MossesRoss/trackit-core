@@ -383,7 +383,7 @@ class FirestoreService {
   }
 
   Stream<Map<String, dynamic>> getWeeklyReport() async* {
-    if (uid == null) yield* Stream.empty();
+    if (uid == null) yield* const Stream.empty();
     
     final now = DateTime.now();
     final startOfWeek = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
@@ -400,7 +400,7 @@ class FirestoreService {
   }
 
   Stream<Map<String, dynamic>> getMonthlyReport() async* {
-    if (uid == null) yield* Stream.empty();
+    if (uid == null) yield* const Stream.empty();
     
     final now = DateTime.now();
     final startOfMonth = DateTime(now.year, now.month, 1);
@@ -422,7 +422,7 @@ class FirestoreService {
   }
 
   Stream<Map<String, dynamic>> getYearlyReport() async* {
-    if (uid == null) yield* Stream.empty();
+    if (uid == null) yield* const Stream.empty();
     
     final now = DateTime.now();
     final startOfYear = DateTime(now.year, 1, 1);
