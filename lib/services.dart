@@ -87,69 +87,8 @@ class _RedirectingClient extends http.BaseClient {
 }
 // --- End of new class ---
 
-// =======================================================================
-// TOP-LEVEL FUNCTION FOR BACKGROUND REPORT PROCESSING
-// (This function is unchanged)
-// =======================================================================
-Map<String, dynamic> _processPeriodData(Map<String, dynamic> params) {
-  // Deserialize goals from JSON
-  final List<Goal> allGoals = (params['goals'] as List<dynamic>)
-      .map((g) => Goal.fromJson(g as Map<String, dynamic>))
-      .toList();
-  final DateTime start = params['start'] as DateTime;
-  final DateTime end = params['end'] as DateTime;
-
-  Duration totalTime = Duration.zero;
-  int tasksCompleted = 0;
-  Map<TaskCheckinStatus, int> checkinCounts = {
-    for (var status in TaskCheckinStatus.values) status: 0
-  };
-
-  for (final goal in allGoals) {
-    for (final milestone in goal.milestones) {
-      // --- FIX: This is the new, correct logic ---
-      // Iterate over every individual time session
-      for (final session in milestone.timeLog) {
-        // Check if the session *timestamp* is within the period
-        if (session.timestamp.isAfter(start) &&
-            session.timestamp.isBefore(end)) {
-          // Add only *that session's* duration
-          totalTime += session.duration;
-        }
-      }
-      // --- End of new logic ---
-
-      // --- DEPRECATED: Remove old, buggy logic ---
-      // if (milestone.lastWorkedOn != null &&
-      //     milestone.lastWorkedOn!.isAfter(start) &&
-      //     milestone.lastWorkedOn!.isBefore(end)) {
-      //   totalTime += milestone.timeSpent;
-      // }
-      // --- End of deprecated logic ---
-
-      // --- FIX: Logic is now correct ---
-      for (final checkin in milestone.checkins) {
-        if (checkin.timestamp.isAfter(start) &&
-            checkin.timestamp.isBefore(end)) {
-          // Increment the count for the specific check-in status
-          checkinCounts[checkin.status] =
-              (checkinCounts[checkin.status] ?? 0) + 1;
-
-          // If the status was 'Done', count it as a completed task for the period
-          if (checkin.status == TaskCheckinStatus.done) {
-            tasksCompleted++;
-          }
-        }
-      }
-    }
-  }
-
-  return {
-    'timeSpent': totalTime,
-    'tasksCompleted': tasksCompleted,
-    'checkinCounts': checkinCounts
-  };
-}
+// We will now use Firestore Aggregations directly, so _processPeriodData is deprecated.
+// Keeping a lightweight helper if needed, but the main logic is moved to FirestoreService.
 
 // --- Auth Service (Updated) ---
 class AuthService with ChangeNotifier {
@@ -203,6 +142,9 @@ class AuthService with ChangeNotifier {
     } on FirebaseAuthException catch (e) {
       throw e.message ??
           'An unknown error occurred while signing in with Google.';
+    } catch (e) {
+      debugPrint("Google Sign-in Error: $e");
+      throw 'Google Sign-in failed. If on Android, ensure your SHA-1 is added to the Firebase Console.';
     }
   }
 
@@ -340,135 +282,177 @@ class FirestoreService {
     });
   }
 
-  /// --- REMOVED: `_getPeriodData` is now a top-level function ---
+  Future<void> addTimeSession(String goalId, String milestoneId, Duration duration) async {
+    if (uid == null || duration.inSeconds <= 0) return;
+    
+    // Split the duration across midnight boundaries if necessary to ensure perfect daily metrics
+    final end = DateTime.now();
+    final start = end.subtract(duration);
+    final nextMidnight = DateTime(start.year, start.month, start.day + 1);
 
-  /// --- FIX: Changed to return a Stream and use `compute` ---
-  Stream<Map<String, dynamic>> getWeeklyReport() {
-    // Get the real-time stream of goals
-    return getGoalsStream().asyncMap((goals) async {
-      debugPrint("getWeeklyReport: Processing ${goals.length} goals...");
-      final now = DateTime.now();
-      // --- FIX: Truncate `now` to 00:00:00 to get true start of week ---
-      final startOfWeek = DateTime(now.year, now.month, now.day)
-          .subtract(Duration(days: now.weekday - 1));
-      // --- FIX: Add 7 full days so `isBefore` works correctly ---
-      final endOfWeek = startOfWeek.add(const Duration(days: 7));
-      final startOfLastWeek = startOfWeek.subtract(const Duration(days: 7));
+    if (end.isAfter(nextMidnight)) {
+      // Crosses midnight! Split into two sessions.
+      final durationBeforeMidnight = nextMidnight.difference(start);
+      final durationAfterMidnight = end.difference(nextMidnight);
+      
+      await _saveTimeSession(goalId, milestoneId, durationBeforeMidnight, start);
+      await _saveTimeSession(goalId, milestoneId, durationAfterMidnight, nextMidnight);
+    } else {
+      await _saveTimeSession(goalId, milestoneId, duration, start);
+    }
+  }
 
-      // Prepare data for background processing
-      final goalsJson = _goalsToJson(goals);
-      final currentParams = {
-        'goals': goalsJson,
-        'start': startOfWeek,
-        'end': endOfWeek
-      };
-      final previousParams = {
-        'goals': goalsJson,
-        'start': startOfLastWeek,
-        'end': startOfWeek
-      };
-
-      // --- PERF: Run both calculations in parallel on background threads ---
-      final results = await Future.wait([
-        compute(_processPeriodData, currentParams),
-        compute(_processPeriodData, previousParams)
-      ]);
-
-      debugPrint("getWeeklyReport: Processing complete.");
-      return {'currentPeriod': results[0], 'previousPeriod': results[1]};
+  Future<void> _saveTimeSession(String goalId, String milestoneId, Duration duration, DateTime timestamp) async {
+    await _db.collection('users').doc(uid).collection('time_sessions').add({
+      'goalId': goalId,
+      'milestoneId': milestoneId,
+      'durationInSeconds': duration.inSeconds,
+      'timestamp': timestamp.toIso8601String(),
     });
   }
 
-  /// --- FIX: Changed to return a Stream and use `compute` ---
-  Stream<Map<String, dynamic>> getMonthlyReport() {
-    return getGoalsStream().asyncMap((goals) async {
-      debugPrint("getMonthlyReport: Processing ${goals.length} goals...");
-      final now = DateTime.now();
-      final startOfMonth = DateTime(now.year, now.month, 1);
-      final endOfMonth = DateTime(now.year, now.month + 1, 0);
-      final startOfLastMonth = DateTime(now.year, now.month - 1, 1);
+  Future<void> recordTaskCompletion(String goalId, String milestoneId, String checkpointId, bool isCompleted) async {
+    if (uid == null) return;
+    final docRef = _db.collection('users').doc(uid).collection('completed_tasks').doc(checkpointId);
+    
+    if (isCompleted) {
+      await docRef.set({
+        'goalId': goalId,
+        'milestoneId': milestoneId,
+        'completedAt': DateTime.now().toIso8601String(),
+      });
+    } else {
+      await docRef.delete();
+    }
+  }
 
-      final goalsJson = _goalsToJson(goals);
-      final currentParams = {
-        'goals': goalsJson,
-        'start': startOfMonth,
-        'end': endOfMonth
-      };
-      final previousParams = {
-        'goals': goalsJson,
-        'start': startOfLastMonth,
-        'end': startOfMonth
-      };
-
-      final results = await Future.wait([
-        compute(_processPeriodData, currentParams),
-        compute(_processPeriodData, previousParams)
-      ]);
-
-      final summary = await SuggestionService.getMonthlyReportSummary(
-          results[0], results[1]);
-
-      debugPrint("getMonthlyReport: Processing complete.");
-      return {
-        'currentPeriod': results[0],
-        'previousPeriod': results[1],
-        'summary': summary
-      };
+  Future<void> recordTaskCheckin(String goalId, String milestoneId, String checkpointId, TaskCheckinStatus status) async {
+    if (uid == null) return;
+    await _db.collection('users').doc(uid).collection('task_checkins').add({
+      'goalId': goalId,
+      'milestoneId': milestoneId,
+      'checkpointId': checkpointId,
+      'status': status.index,
+      'timestamp': DateTime.now().toIso8601String(),
     });
   }
 
-  /// --- FIX: Changed to return a Stream and use `compute` ---
-  Stream<Map<String, dynamic>> getYearlyReport() {
-    return getGoalsStream().asyncMap((goals) async {
-      debugPrint("getYearlyReport: Processing ${goals.length} goals...");
-      final now = DateTime.now();
-      final startOfYear = DateTime(now.year, 1, 1);
-      final endOfYear = DateTime(now.year, 12, 31);
-      final startOfLastYear = DateTime(now.year - 1, 1, 1);
+  Future<Map<String, dynamic>> _getAggregatedMetrics(DateTime start, DateTime end) async {
+    if (uid == null) return {'timeSpent': Duration.zero, 'tasksCompleted': 0, 'checkinCounts': {}};
 
-      final goalsJson = _goalsToJson(goals);
-      final currentParams = {
-        'goals': goalsJson,
-        'start': startOfYear,
-        'end': endOfYear
-      };
-      final previousParams = {
-        'goals': goalsJson,
-        'start': startOfLastYear,
-        'end': startOfYear
-      };
+    final startStr = start.toIso8601String();
+    final endStr = end.toIso8601String();
 
-      // --- FIX: Query the user-specific subcollection ---
-      final querySnapshot = _db
-          .collection('users')
-          .doc(uid)
-          .collection('archived_goals')
-          // --- FIX: Removed redundant where clause ---
-          // .where('userId', isEqualTo: uid)
-          .where('createdAt',
-              isGreaterThanOrEqualTo: startOfYear.toIso8601String())
-          .where('createdAt', isLessThanOrEqualTo: endOfYear.toIso8601String())
-          .get();
+    // 1. Aggregate Time Spent using Firestore sum()
+    final timeQuery = await _db.collection('users').doc(uid).collection('time_sessions')
+      .where('timestamp', isGreaterThanOrEqualTo: startStr)
+      .where('timestamp', isLessThan: endStr)
+      .aggregate(sum('durationInSeconds'))
+      .get();
+    
+    final totalSeconds = (timeQuery.getSum('durationInSeconds') ?? 0).toInt();
 
-      // Run compute tasks and DB query in parallel
-      final results = await Future.wait([
-        compute(_processPeriodData, currentParams),
-        compute(_processPeriodData, previousParams),
-        querySnapshot,
-      ]);
+    // 2. Aggregate Tasks Completed using Firestore count()
+    final tasksQuery = await _db.collection('users').doc(uid).collection('completed_tasks')
+      .where('completedAt', isGreaterThanOrEqualTo: startStr)
+      .where('completedAt', isLessThan: endStr)
+      .count()
+      .get();
+    
+    final completedCount = tasksQuery.count ?? 0;
 
-      final archivedGoals = (results[2] as QuerySnapshot<Map<String, dynamic>>)
-          .docs
-          .map((doc) => Goal.fromJson(doc.data()))
-          .toList();
+    // 3. Aggregate Checkin Counts (Done, Doing, Will Do, Wont Do)
+    // We still have to fetch the docs for this, but it's a small bounded list.
+    final checkinsQuery = await _db.collection('users').doc(uid).collection('task_checkins')
+      .where('timestamp', isGreaterThanOrEqualTo: startStr)
+      .where('timestamp', isLessThan: endStr)
+      .get();
+    
+    Map<TaskCheckinStatus, int> checkinCounts = {
+      for (var status in TaskCheckinStatus.values) status: 0
+    };
+    for (var doc in checkinsQuery.docs) {
+      final statusIndex = doc.data()['status'] as int?;
+      if (statusIndex != null) {
+        final status = TaskCheckinStatus.values[statusIndex];
+        checkinCounts[status] = (checkinCounts[status] ?? 0) + 1;
+      }
+    }
 
-      debugPrint("getYearlyReport: Processing complete.");
-      return {
-        'currentPeriod': results[0] as Map<String, dynamic>,
-        'previousPeriod': results[1] as Map<String, dynamic>,
-        'archivedGoals': archivedGoals
-      };
-    });
+    return {
+      'timeSpent': Duration(seconds: totalSeconds),
+      'tasksCompleted': completedCount,
+      'checkinCounts': checkinCounts,
+    };
+  }
+
+  Stream<Map<String, dynamic>> getWeeklyReport() async* {
+    if (uid == null) yield* Stream.empty();
+    
+    final now = DateTime.now();
+    final startOfWeek = DateTime(now.year, now.month, now.day).subtract(Duration(days: now.weekday - 1));
+    final endOfWeek = startOfWeek.add(const Duration(days: 7));
+    final startOfLastWeek = startOfWeek.subtract(const Duration(days: 7));
+
+    // Yield initial empty while loading
+    yield {};
+
+    final currentPeriod = await _getAggregatedMetrics(startOfWeek, endOfWeek);
+    final previousPeriod = await _getAggregatedMetrics(startOfLastWeek, startOfWeek);
+
+    yield {'currentPeriod': currentPeriod, 'previousPeriod': previousPeriod};
+  }
+
+  Stream<Map<String, dynamic>> getMonthlyReport() async* {
+    if (uid == null) yield* Stream.empty();
+    
+    final now = DateTime.now();
+    final startOfMonth = DateTime(now.year, now.month, 1);
+    final endOfMonth = DateTime(now.year, now.month + 1, 0);
+    final startOfLastMonth = DateTime(now.year, now.month - 1, 1);
+
+    yield {};
+
+    final currentPeriod = await _getAggregatedMetrics(startOfMonth, endOfMonth);
+    final previousPeriod = await _getAggregatedMetrics(startOfLastMonth, startOfMonth);
+
+    final summary = await SuggestionService.getMonthlyReportSummary(currentPeriod, previousPeriod);
+
+    yield {
+      'currentPeriod': currentPeriod,
+      'previousPeriod': previousPeriod,
+      'summary': summary
+    };
+  }
+
+  Stream<Map<String, dynamic>> getYearlyReport() async* {
+    if (uid == null) yield* Stream.empty();
+    
+    final now = DateTime.now();
+    final startOfYear = DateTime(now.year, 1, 1);
+    final endOfYear = DateTime(now.year, 12, 31);
+    final startOfLastYear = DateTime(now.year - 1, 1, 1);
+
+    yield {};
+
+    final currentPeriod = await _getAggregatedMetrics(startOfYear, endOfYear);
+    final previousPeriod = await _getAggregatedMetrics(startOfLastYear, startOfYear);
+
+    final querySnapshot = await _db
+        .collection('users')
+        .doc(uid)
+        .collection('archived_goals')
+        .where('createdAt', isGreaterThanOrEqualTo: startOfYear.toIso8601String())
+        .where('createdAt', isLessThanOrEqualTo: endOfYear.toIso8601String())
+        .get();
+
+    final archivedGoals = querySnapshot.docs.map((doc) => Goal.fromJson(doc.data())).toList();
+
+    yield {
+      'currentPeriod': currentPeriod,
+      'previousPeriod': previousPeriod,
+      'archivedGoals': archivedGoals
+    };
   }
 }
 
@@ -611,6 +595,15 @@ class SuggestionService {
       return result.error!;
     }
     return result.suggestion ?? _proMessage;
+  }
+
+  /// Triggers the weekly report via the backend
+  static Future<SuggestionResult> triggerWeeklyReport(String userId, String email) async {
+    debugPrint("Triggering weekly report for $email...");
+    return _callAppsScript('triggerWeeklyReport', {
+      'userId': userId,
+      'email': email,
+    });
   }
 }
 

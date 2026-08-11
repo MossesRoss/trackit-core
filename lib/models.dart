@@ -148,14 +148,7 @@ class Milestone {
   List<Checkpoint> checkpoints;
   List<String> completedCheckpointIds;
   bool isUnlocked;
-  // --- FIX: timeSpent and lastWorkedOn are replaced by timeLog ---
-  // Duration timeSpent;
-  // DateTime? lastWorkedOn;
-  List<TimeSession> timeLog;
-  // --- NEW: List to store task check-in records ---
-  List<TaskCheckin> checkins;
-  // --- NEW (v1.5.0): Timestamp for when the milestone was completed ---
-  DateTime? completedAt;
+  int timeSpentSeconds;
 
   Milestone({
     required this.title,
@@ -163,24 +156,15 @@ class Milestone {
     required this.checkpoints,
     List<String> completedCheckpointIds = const [],
     this.isUnlocked = false,
-    // --- FIX: Remove timeSpent and lastWorkedOn from constructor ---
-    // this.timeSpent = Duration.zero,
-    // this.lastWorkedOn,
     String? id,
-    List<TaskCheckin> checkins = const [], // Initialize with empty list
-    List<TimeSession> timeLog = const [], // --- FIX: Add timeLog ---
-    this.completedAt, // --- NEW (v1.5.0) ---
+    this.timeSpentSeconds = 0,
+    this.completedAt,
   })  : id = id ?? UniqueKey().toString(),
-        completedCheckpointIds = List<String>.from(completedCheckpointIds),
-        checkins = List<TaskCheckin>.from(checkins),
-        timeLog = List<TimeSession>.from(timeLog); // --- FIX: Add timeLog ---
+        completedCheckpointIds = List<String>.from(completedCheckpointIds);
 
-  // --- FIX: timeSpent is now a getter that sums the log ---
-  Duration get timeSpent =>
-      timeLog.fold(Duration.zero, (prev, session) => prev + session.duration);
+  Duration get timeSpent => Duration(seconds: timeSpentSeconds);
 
-  // --- FIX: lastWorkedOn is now a getter that checks the log ---
-  DateTime? get lastWorkedOn => timeLog.isEmpty ? null : timeLog.last.timestamp;
+  DateTime? get lastWorkedOn => null; // Kept for API compatibility, but unused locally now
 
   double get progress => checkpoints.isEmpty
       ? 0.0
@@ -193,31 +177,22 @@ class Milestone {
         'deadline': deadline.toIso8601String(),
         'checkpoints': checkpoints.map((c) => c.toJson()).toList(),
         'completedCheckpointIds': completedCheckpointIds,
-        // --- FIX: Save the new timeLog instead of old fields ---
-        // 'timeSpent': timeSpent.inSeconds,
-        // 'lastWorkedOn': lastWorkedOn?.toIso8601String(),
-        'timeLog': timeLog.map((s) => s.toJson()).toList(),
-        'checkins': checkins.map((c) => c.toJson()).toList(),
-        'completedAt': completedAt?.toIso8601String(), // --- NEW (v1.5.0) ---
+        'timeSpentSeconds': timeSpentSeconds,
+        'completedAt': completedAt?.toIso8601String(),
       };
 
   factory Milestone.fromJson(Map<String, dynamic> json) {
-    // --- FIX: Add migration logic for old data model ---
-    List<TimeSession> log = [];
+    int migratedTimeSpent = json['timeSpentSeconds'] ?? 0;
+    
+    // Migration: if old timeLog exists, sum its durations
     if (json['timeLog'] != null) {
-      // New data model exists, use it
-      log = List<TimeSession>.from(
-          (json['timeLog'] as List).map((s) => TimeSession.fromJson(s)));
+      final log = (json['timeLog'] as List).map((s) => TimeSession.fromJson(s));
+      for (var session in log) {
+        migratedTimeSpent += session.duration.inSeconds;
+      }
     } else if ((json['timeSpent'] ?? 0) > 0) {
-      // Old data model exists, migrate it to a single session
-      log.add(TimeSession(
-        timestamp: json['lastWorkedOn'] != null
-            ? DateTime.parse(json['lastWorkedOn'])
-            : DateTime.now(), // Fallback timestamp
-        duration: Duration(seconds: json['timeSpent'] ?? 0),
-      ));
+       migratedTimeSpent += (json['timeSpent'] as num).toInt();
     }
-    // --- End of migration logic ---
 
     return Milestone(
       id: json['id'],
@@ -226,18 +201,7 @@ class Milestone {
       checkpoints: List<Checkpoint>.from(
           (json['checkpoints'] as List).map((c) => Checkpoint.fromJson(c))),
       completedCheckpointIds: List<String>.from(json['completedCheckpointIds']),
-      // --- FIX: Remove old fields from factory ---
-      // timeSpent: Duration(seconds: json['timeSpent'] ?? 0),
-      // lastWorkedOn: json['lastWorkedOn'] != null
-      //     ? DateTime.parse(json['lastWorkedOn'])
-      //     : null,
-      timeLog: log, // --- FIX: Assign the new log ---
-      // Handle potentially null check-ins for backward compatibility
-      checkins: json['checkins'] == null
-          ? []
-          : List<TaskCheckin>.from(
-              (json['checkins'] as List).map((c) => TaskCheckin.fromJson(c))),
-      // --- NEW (v1.5.0) ---
+      timeSpentSeconds: migratedTimeSpent,
       completedAt: json['completedAt'] != null
           ? DateTime.parse(json['completedAt'])
           : null,

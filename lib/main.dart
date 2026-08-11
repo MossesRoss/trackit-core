@@ -244,9 +244,6 @@ class _MainPageState extends State<MainPage> {
   bool _editMode = true;
   bool _isLoading = true;
 
-  final GlobalKey<MilestonesPageState> _milestonesPageKey =
-      GlobalKey<MilestonesPageState>();
-
   Goal? get _activeGoal {
     try {
       return _allGoals.firstWhere((g) => g.status == GoalStatus.active);
@@ -512,11 +509,16 @@ class _MainPageState extends State<MainPage> {
 
   Future<void> _toggleCheckpoint(
       Milestone milestone, String checkpointId) async {
+    
+    final persistenceService = Provider.of<FirestoreService>(context, listen: false);
+    bool isCompleted = false;
+
     setState(() {
       if (milestone.completedCheckpointIds.contains(checkpointId)) {
         milestone.completedCheckpointIds.remove(checkpointId);
       } else {
         milestone.completedCheckpointIds.add(checkpointId);
+        isCompleted = true;
       }
 
       if (milestone.isCompleted && milestone.completedAt == null) {
@@ -525,6 +527,15 @@ class _MainPageState extends State<MainPage> {
         milestone.completedAt = null;
       }
     });
+
+    if (_activeGoal != null) {
+      await persistenceService.recordTaskCompletion(
+        _activeGoal!.id, 
+        milestone.id, 
+        checkpointId, 
+        isCompleted
+      );
+    }
 
     _updateMilestoneLockStatus();
 
@@ -605,8 +616,11 @@ class _MainPageState extends State<MainPage> {
     _saveGoals();
   }
 
-  void _addTimeToMilestone(String milestoneId, Duration timeToAdd) {
+  Future<void> _addTimeToMilestone(String milestoneId, Duration timeToAdd) async {
     if (_activeGoal == null || timeToAdd.inSeconds <= 0) return;
+
+    final persistenceService = Provider.of<FirestoreService>(context, listen: false);
+    await persistenceService.addTimeSession(_activeGoal!.id, milestoneId, timeToAdd);
 
     setState(() {
       Milestone? milestone;
@@ -617,35 +631,15 @@ class _MainPageState extends State<MainPage> {
         return;
       }
 
-      milestone.timeLog.add(TimeSession(
-        timestamp: DateTime.now(),
-        duration: timeToAdd,
-      ));
+      milestone.timeSpentSeconds += timeToAdd.inSeconds;
     });
     _saveGoals();
   }
 
-  void recordTaskCheckin(String goalId, String milestoneId, String checkpointId,
-      TaskCheckinStatus status) {
-    setState(() {
-      Goal? goal;
-      try {
-        goal = _allGoals.firstWhere((g) => g.id == goalId);
-      } catch (e) {
-        return;
-      }
-
-      Milestone? milestone;
-      try {
-        milestone = goal.milestones.firstWhere((m) => m.id == milestoneId);
-      } catch (e) {
-        return;
-      }
-
-      milestone.checkins
-          .add(TaskCheckin(checkpointId: checkpointId, status: status));
-    });
-    _saveGoals();
+  Future<void> recordTaskCheckin(String goalId, String milestoneId, String checkpointId,
+      TaskCheckinStatus status) async {
+    final persistenceService = Provider.of<FirestoreService>(context, listen: false);
+    await persistenceService.recordTaskCheckin(goalId, milestoneId, checkpointId, status);
   }
 
   void _updateMilestoneLockStatus() {
@@ -682,7 +676,6 @@ class _MainPageState extends State<MainPage> {
       const ReportsPage(),
       // --- UPDATED: Use the new class from milestones_page.dart ---
       MilestonesPage(
-        key: _milestonesPageKey,
         activeGoal: _activeGoal,
         onAddMilestone: _addMilestone,
         onToggleCheckpoint: _toggleCheckpoint,
