@@ -3,9 +3,8 @@ import 'package:provider/provider.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import './models.dart';
 import './services.dart';
-import './auth_screen.dart'; 
+// import './auth_screen.dart'; 
 import 'reports_page.dart';
-import 'upgrade_page.dart';
 import 'guide_page.dart';
 import 'ui.dart';
 
@@ -89,38 +88,6 @@ class SettingsPage extends StatelessWidget {
       body: ListView(
         children: [
           const SizedBox(height: 10),
-          
-          Card(
-            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-            color: Theme.of(context).colorScheme.primaryContainer,
-            child: ListTile(
-              leading: Icon(
-                Icons.auto_awesome_rounded,
-                color: Theme.of(context).colorScheme.onPrimaryContainer,
-              ),
-              title: Text(
-                "Upgrade to Pro",
-                style: TextStyle(
-                  fontWeight: FontWeight.bold,
-                  color: Theme.of(context).colorScheme.onPrimaryContainer,
-                ),
-              ),
-              subtitle: Text(
-                "Unlock AI features & more!",
-                style: TextStyle(
-                  color: Theme.of(context)
-                      .colorScheme
-                      .onPrimaryContainer
-                      .withAlpha(204),
-                ),
-              ),
-              onTap: () {
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => const UpgradePage(),
-                ));
-              },
-            ),
-          ),
 
           SwitchListTile(
             title: const Text("Dark Mode"),
@@ -144,6 +111,28 @@ class SettingsPage extends StatelessWidget {
             subtitle: const Text("View your weekly and monthly progress"),
             onTap: () => Navigator.of(context).push(MaterialPageRoute(
                 builder: (_) => const ReportsPage())),
+          ),
+          ListTile(
+            leading: const Icon(Icons.email_outlined),
+            title: const Text("Email Weekly Report Now"),
+            subtitle: const Text("Trigger AI assessment & email"),
+            onTap: () async {
+              final user = FirebaseAuth.instance.currentUser;
+              if (user == null || user.email == null) {
+                _showSwitchSnackBar(context, "You must be logged in.");
+                return;
+              }
+              _showSwitchSnackBar(context, "Generating report... Check your email shortly.");
+              final result = await SuggestionService.triggerWeeklyReport(user.uid, user.email!);
+              
+              if (!context.mounted) return;
+
+              if (result.error != null) {
+                _showSwitchSnackBar(context, "Error: ${result.error}");
+              } else {
+                 _showSwitchSnackBar(context, "Success: ${result.suggestion}");
+              }
+            },
           ),
           ListTile(
             leading: const Icon(Icons.history_rounded),

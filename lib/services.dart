@@ -26,7 +26,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 // import 'package:flutter/material.dart';
 // --- FIX: Import for 'compute' function ---
 import 'package:flutter/foundation.dart'
-    show ChangeNotifier, debugPrint, compute;
+    show ChangeNotifier, debugPrint;
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:http/http.dart' as http; // Kept for Apps Script calls
 import 'package:intl/intl.dart';
@@ -259,10 +259,6 @@ class FirestoreService {
     return goals;
   }
 
-  /// Helper to convert goal list to JSON-encodable format for `compute`
-  List<Map<String, dynamic>> _goalsToJson(List<Goal> goals) {
-    return goals.map((g) => g.toJson()).toList();
-  }
 
   /// --- NEW: Provides a real-time stream of all goals ---
   Stream<List<Goal>> getGoalsStream() {
@@ -395,7 +391,7 @@ class FirestoreService {
     final startOfLastWeek = startOfWeek.subtract(const Duration(days: 7));
 
     // Yield initial empty while loading
-    yield {};
+    yield const {};
 
     final currentPeriod = await _getAggregatedMetrics(startOfWeek, endOfWeek);
     final previousPeriod = await _getAggregatedMetrics(startOfLastWeek, startOfWeek);
@@ -411,7 +407,7 @@ class FirestoreService {
     final endOfMonth = DateTime(now.year, now.month + 1, 0);
     final startOfLastMonth = DateTime(now.year, now.month - 1, 1);
 
-    yield {};
+    yield const {};
 
     final currentPeriod = await _getAggregatedMetrics(startOfMonth, endOfMonth);
     final previousPeriod = await _getAggregatedMetrics(startOfLastMonth, startOfMonth);
@@ -433,7 +429,7 @@ class FirestoreService {
     final endOfYear = DateTime(now.year, 12, 31);
     final startOfLastYear = DateTime(now.year - 1, 1, 1);
 
-    yield {};
+    yield const {};
 
     final currentPeriod = await _getAggregatedMetrics(startOfYear, endOfYear);
     final previousPeriod = await _getAggregatedMetrics(startOfLastYear, startOfYear);
@@ -474,7 +470,7 @@ class SuggestionService {
 
   // --- NEW: Define the user-facing error message ---
   static const String _proMessage =
-      "Upgrade to Pro to enjoy AI features and more";
+      "AI features are currently unavailable.";
 
   /// Calls the Google Apps Script backend proxy.
   /// This is the new single point of contact for all AI features.

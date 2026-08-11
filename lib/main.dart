@@ -325,6 +325,7 @@ class _MainPageState extends State<MainPage> {
 
     try {
       debugPrint("[DEBUG] Loading goals...");
+      if (!mounted) return;
       final persistenceService =
           Provider.of<FirestoreService>(context, listen: false);
 

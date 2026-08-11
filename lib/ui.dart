@@ -11,19 +11,13 @@
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:permission_handler/permission_handler.dart';
-import 'package:provider/provider.dart';
 import 'package:url_launcher/url_launcher.dart';
-import 'package:firebase_auth/firebase_auth.dart'; 
 import './models.dart';
 import './services.dart';
-import './reports_page.dart';
 import './notification_service.dart';
-import './guide_page.dart';
-import './upgrade_page.dart';
 import 'milestones_page.dart'; // NEW IMPORT: To access MilestoneNode
 
 // --- Keys for SharedPreferences Timer Recovery ---

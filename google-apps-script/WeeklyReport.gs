@@ -11,7 +11,6 @@
 
 // Get script properties set by the user in Project Settings
 const SCRIPT_PROPERTIES = PropertiesService.getScriptProperties();
-const AI_SCRIPT_URL = SCRIPT_PROPERTIES.getProperty('AI_SCRIPT_URL');
 const GEMINI_API_KEY = SCRIPT_PROPERTIES.getProperty('GEMINI_API_KEY'); // <-- We'll use this from your properties now
 const PROJECT_ID = SCRIPT_PROPERTIES.getProperty('PROJECT_ID');
 const SERVICE_ACCOUNT_CREDS = JSON.parse(SCRIPT_PROPERTIES.getProperty('SERVICE_ACCOUNT_CREDS') || '{}');
@@ -101,28 +100,38 @@ function runWeeklyReport() {
  *
  * @param {string} userId The user's Firebase UID.
  * @param {string} email The user's email address.
- * @param {string} authToken A valid Firebase auth token.
- * @private
+ * @param {string} authToken A valid Firebase auth token (optional - if null, generates one).
+ * @return {Object} Status of the operation { success: boolean, message: string }.
+ * @public
  */
-function processUserReport_(userId, email, authToken) {
+function processUserReport(userId, email, authToken) {
   try {
+    // If no token provided (e.g. called from manual trigger), generate one
+    if (!authToken) {
+      authToken = getFirebaseServiceAccountToken_();
+      if (!authToken) {
+        return { success: false, message: "Failed to generate internal auth token." };
+      }
+    }
+
     // 1. Get all active and archived goals for the user
     const allGoals = getAllGoalsForUser_(userId, authToken);
     const activeGoal = allGoals.find(g => g.status === 'active');
     
     if (!activeGoal) {
       console.log(`User ${email} has no active goal. Skipping.`);
-      return;
+      return { success: false, message: "No active goal found." };
     }
 
     // 2. Calculate stats
     const stats = calculateAllStats_(activeGoal);
 
     // 3. Get AI-powered insights (Projection & Planning)
+    // We pass userId and authToken to fetch the previous plan for review
     const aiInsights = getAiInsights_(activeGoal, stats, userId, authToken);
 
     // 4. Generate the email content
-    const emailSubject = `Your Weekly Goal Report: ${activeGoal.title}`;
+    const emailSubject = `Weekly Reality Check: ${activeGoal.title}`;
     const emailBody = buildHtmlEmail_(activeGoal, stats, aiInsights, email);
 
     // 5. Send the email
@@ -130,13 +139,15 @@ function processUserReport_(userId, email, authToken) {
       to: email,
       subject: emailSubject,
       htmlBody: emailBody,
-      name: 'TrackIt Weekly Bot'
+      name: 'TrackIt Bot'
     });
 
     console.log(`Successfully processed and sent report to ${email}.`);
+    return { success: true, message: `Report sent to ${email}` };
 
   } catch (e) {
     console.error(`Failed to process report for ${email}: ${e.message}\n${e.stack}`);
+    return { success: false, message: `Error: ${e.message}` };
   }
 }
 
@@ -170,7 +181,7 @@ function getAllGoalsForUser_(userId, authToken) {
 }
 
 /**
- * Calls the AI script to get projection, next week's plan, and last week's review.
+ * Generates AI insights by constructing prompts and calling `callGeminiApi` directly.
  *
  * @param {Object} activeGoal The user's active goal.
  * @param {Object} stats The calculated stats.
@@ -187,37 +198,60 @@ function getAiInsights_(activeGoal, stats, userId, authToken) {
   };
 
   try {
-    // 1. Get projection (Point 3.4)
-    const projectionPayload = {
-      action: 'getWeeklyProjection',
-      apiKey: GEMINI_API_KEY,
-      goal: activeGoal,
-      stats: stats
-    };
-    insights.projection = callAiScript_(projectionPayload);
+    // Shared context for the AI
+    const goalContext = `
+      Goal: "${activeGoal.title}"
+      Deadline: ${activeGoal.deadline}
+      Current Week: ${stats.weekNumber}
+      Hours This Week: ${stats.totalHoursThisWeek}
+      Total Hours: ${stats.totalHoursOverall}
+      Avg Hours/Week: ${stats.avgHoursPerWeek}
+    `;
+
+    // 1. Get projection (Ruthlessly Rational)
+    const projectionPrompt = `
+      You are a ruthlessly rational data analyst.
+      Based on the following data, assess if the user will achieve their goal.
+      ${goalContext}
+      
+      Be blunt. Use the data. If they are slacking, say it. If they are on track, prove it with the numbers.
+      Limit to 3-4 sentences.
+    `;
+    const projectionRes = callGeminiApi(projectionPrompt, false, GEMINI_API_KEY);
+    if (projectionRes.suggestion) insights.projection = projectionRes.suggestion;
 
     // 2. Get last week's plan (Point 7)
     const lastWeekPlan = fetchLastWeeksPlan_(userId, authToken);
     if (lastWeekPlan) {
-      const reviewPayload = {
-        action: 'reviewLastWeekPlan',
-        apiKey: GEMINI_API_KEY,
-        goal: activeGoal,
-        plan: lastWeekPlan
-      };
-      insights.lastWeekReview = callAiScript_(reviewPayload);
+      const reviewPrompt = `
+        You are a strict accountability partner.
+        Last week's plan: "${lastWeekPlan}"
+        Actual performance: ${stats.totalHoursThisWeek} hours logged.
+        
+        Did they stick to the plan? Critique their execution based ONLY on the data.
+        Limit to 3-4 sentences.
+      `;
+      const reviewRes = callGeminiApi(reviewPrompt, false, GEMINI_API_KEY);
+      if (reviewRes.suggestion) insights.lastWeekReview = reviewRes.suggestion;
+    } else {
+        insights.lastWeekReview = "No plan was set for last week, so no review is possible.";
     }
 
     // 3. Get next week's plan (Point 6)
-    const nextPlanPayload = {
-      action: 'generateNextWeekPlan',
-      apiKey: GEMINI_API_KEY,
-      goal: activeGoal
-    };
-    insights.nextWeekPlan = callAiScript_(nextPlanPayload);
+    const planPrompt = `
+      You are an expert strategist.
+      Create a bullet-proof, actionable plan for next week to maximize progress towards: "${activeGoal.title}".
+      Consider they averaged ${stats.avgHoursPerWeek} hours/week so far.
+      Push them to do better but stay realistic.
+      Provide 3 specific bullet points.
+    `;
+    const planRes = callGeminiApi(planPrompt, false, GEMINI_API_KEY);
+    if (planRes.suggestion) insights.nextWeekPlan = planRes.suggestion;
 
     // 4. Save the new plan for next week's review
-    saveWeeklyPlan_(userId, insights.nextWeekPlan, authToken);
+    if (insights.nextWeekPlan) {
+      saveWeeklyPlan_(userId, insights.nextWeekPlan, authToken);
+    }
 
   } catch (e) {
     console.error(`Failed to get AI insights: ${e.message}`);
@@ -489,44 +523,6 @@ function getWeekNumber_(d) {
   const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
   const weekNo = Math.ceil((((d - yearStart) / 86400000) + 1) / 7);
   return weekNo;
-}
-
-/**
- * Calls the AI Apps Script (the one your app uses) with a specific action.
- *
- * @param {Object} payload The data to send (must include 'action' and 'apiKey').
- * @return {string} The 'suggestion' from the AI, or a fallback string.
- * @private
- */
-function callAiScript_(payload) {
-  if (!AI_SCRIPT_URL) {
-    return "AI Script URL not configured.";
-  }
-  
-  try {
-    const options = {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    };
-
-    const response = UrlFetchApp.fetch(AI_SCRIPT_URL, options);
-    const data = JSON.parse(response.getContentText());
-
-    if (data.suggestion) {
-      return data.suggestion;
-    }
-    if (data.error) {
-      console.error(`AI Script Error: ${data.error}`);
-      return `AI Error: ${data.error}`;
-    }
-    return "AI script returned an unknown response.";
-    
-  } catch (e) {
-    console.error(`Failed to call AI script: ${e.message}`);
-    return `Failed to connect to AI script: ${e.message}`;
-  }
 }
 
 /**

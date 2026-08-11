@@ -58,6 +58,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "1059947667065-aig9f13v8bh5l8tri7rskabgrb08l87e.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.mosses.trackit",
+            "certificate_hash": "9b19bbef501a2568343ea74506c890ab841a6544"
+          }
+        },
+        {
           "client_id": "1059947667065-qbrsn9n4m40kkjail4dfnnroh6altbmn.apps.googleusercontent.com",
           "client_type": 1,
           "android_info": {

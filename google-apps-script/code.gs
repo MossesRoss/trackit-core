@@ -62,6 +62,21 @@ function doPost(e) {
         responseData = callGeminiApi(prompt, false, GEMINI_API_KEY);
         break;
 
+      case 'triggerWeeklyReport':
+        const { userId, email } = body;
+        if (!userId || !email) {
+           responseData = { error: "Missing userId or email" };
+        } else {
+           // Calls the function from WeeklyReport.gs
+           const result = processUserReport(userId, email);
+           if (result.success) {
+             responseData = { suggestion: result.message }; // Use suggestion field for success msg
+           } else {
+             responseData = { error: result.message };
+           }
+        }
+        break;
+
       default:
         console.warn(`Unknown action: ${action}`);
         responseData = { error: 'Unknown action' };
