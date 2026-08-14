@@ -90,23 +90,56 @@ class MilestonesPageState extends State<MilestonesPage>
     final Color lineColor = Theme.of(context).dividerColor;
 
     if (widget.activeGoal == null) {
-      return const Center(
-          child: Text("Set a main goal on the Home page first."));
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Milestones'),
+        ),
+        body: const Center(
+          child: Text("Set a main goal on the Home page first."),
+        ),
+      );
     }
 
     if (widget.activeGoal!.milestones.isEmpty) {
-      return Center(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Text(
-            "Your goal is set!\n\nTap the '+' button above to add your first milestone.",
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: Theme.of(context).textTheme.bodySmall?.color,
-                  height: 1.5,
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Milestones'),
+          actions: [
+            if (widget.editMode)
+              ScaleTransition(
+                scale: _iconAnimation,
+                child: IconButton(
+                  icon: const Icon(Icons.add_circle_outline_rounded),
+                  onPressed: () => showAddMilestoneDialog(context),
+                  tooltip: 'Add Milestone',
                 ),
+              ),
+          ],
+        ),
+        body: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Text(
+              "Your goal is set!\n\nTap the '+' button to add your first milestone.",
+              textAlign: TextAlign.center,
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    color: Theme.of(context).textTheme.bodySmall?.color,
+                    height: 1.5,
+                  ),
+            ),
           ),
         ),
+        floatingActionButton: widget.editMode
+            ? ScaleTransition(
+                scale: _iconAnimation,
+                child: FloatingActionButton(
+                  heroTag: 'add_milestone_fab',
+                  onPressed: () => showAddMilestoneDialog(context),
+                  tooltip: 'Add Milestone',
+                  child: const Icon(Icons.add),
+                ),
+              )
+            : null,
       );
     }
 
@@ -267,6 +300,14 @@ class MilestonesPageState extends State<MilestonesPage>
           ],
         ),
       ),
+      floatingActionButton: widget.editMode
+          ? FloatingActionButton(
+              heroTag: 'add_milestone_fab',
+              onPressed: () => showAddMilestoneDialog(context),
+              tooltip: 'Add Milestone',
+              child: const Icon(Icons.add),
+            )
+          : null,
     );
   }
 }

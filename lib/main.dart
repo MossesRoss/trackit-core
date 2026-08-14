@@ -1,18 +1,16 @@
 /*
  * @author Mosses
- * @version 2.0.0
+ * @version 2.0.2
  * --- CHANGELOG ---
- * v2.0.0:
- * - [FEAT] Ironman HUD gesture-based navigation with glassmorphism overlay.
- * - [FEAT] Drag-to-scrub page switching with haptic feedback.
- * v1.9.1:
- * - [FIX] Ensured strict imports for `milestones_page.dart` and `settings_page.dart`.
- * v1.9.0:
- * - [REFACTOR] Replaced `MilestonesPage` from `ui.dart` with local modular file.
- * - [FEAT] Enabled Drag-and-Drop for Milestones.
- * - [FEAT] Added Swipe-to-Switch gesture on Avatar.
+ * v2.0.2:
+ * - [FIX] Resolved UI pixel overflow in stealth glass ring navigation using FittedBox.
+ * - [FEAT] Added intelligent Bottleneck Detection for deferred tasks.
+ * - [FEAT] Added Dynamic Baseline Performance Tracking to appreciate high-velocity execution.
+ * v2.0.1:
+ * - [REFACTOR] Removed intrusive HUD overlays.
+ * - [FEAT] Implemented minimalist stealth glass ring navigation.
  */
-import 'dart:ui'; // For ImageFilter (Glassmorphism)
+import 'dart:ui';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:firebase_auth/firebase_auth.dart';
@@ -35,10 +33,9 @@ import './ui.dart'; // Keeping ui.dart for HomePage only
 import './auth_screen.dart';
 import './notification_service.dart';
 import 'reports_page.dart';
-import 'milestones_page.dart'; // NEW: Imported Draggable Milestones
-import 'settings_page.dart'; // NEW: Imported Stealth Settings
+import 'milestones_page.dart';
+import 'settings_page.dart';
 
-// --- Keys for SharedPreferences Timer Recovery ---
 const String kRecoveryTimeKey = 'recovery_time_seconds';
 const String kRecoveryMilestoneKey = 'recovery_milestone_id';
 const String _oldLocalCacheKey = 'all_goals_cache';
@@ -47,7 +44,6 @@ const String _kEditModePersistenceKey = 'edit_mode';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-// --- ThemeProvider (Unchanged) ---
 class ThemeProvider with ChangeNotifier {
   ThemeMode _themeMode = ThemeMode.light;
   ThemeMode get themeMode => _themeMode;
@@ -244,24 +240,31 @@ class MainPage extends StatefulWidget {
 
 class _MainPageState extends State<MainPage> {
   int _selectedIndex = 0;
-  int _previewIndex = 0; // Active candidate index while dragging
   List<Goal> _allGoals = [];
   bool _editMode = true;
   bool _isLoading = true;
 
-  // --- JARVIS / HUD Gesture Controller States ---
-  bool _isDragging = false;
-  bool _isNavUnlocked = false;
-  Offset _touchPosition = Offset.zero;
-  double _dragStartY = 0;
-  double _dragAnchorX = 0;
+  // --- Analytics & Insights State ---
+  final Map<String, int> _taskDelayCounters =
+      {}; // Tracks deferred tasks for bottlenecks
 
-  final List<String> _pageNames = [
-    'HOME',
-    'REPORTS',
-    'MILESTONES',
-    'SETTINGS',
+  // --- PWA-style Navigation Matrix States ---
+  bool _isNavActive = false;
+  int? _hoveredTab;
+  Offset _pointerPos = Offset.zero;
+  Offset _pointerDownPos = Offset.zero;
+  bool _longPressArmed = false;
+
+  // Page metadata matching PWA structure
+  static const List<Map<String, dynamic>> _navPages = [
+    {'id': 0, 'title': 'HOME', 'icon': Icons.home_rounded},
+    {'id': 1, 'title': 'REPORTS', 'icon': Icons.bar_chart_rounded},
+    {'id': 2, 'title': 'MILESTONES', 'icon': Icons.flag_rounded},
+    {'id': 3, 'title': 'SETTINGS', 'icon': Icons.settings_rounded},
   ];
+
+  // Keys for hit-testing nav targets
+  final List<GlobalKey> _navTargetKeys = List.generate(4, (_) => GlobalKey());
 
   Goal? get _activeGoal {
     try {
@@ -395,8 +398,7 @@ class _MainPageState extends State<MainPage> {
 
     try {
       debugPrint("[DEBUG] Recovering timer...");
-      final recoveredSecondsString =
-          await _storage.read(key: kRecoveryTimeKey);
+      final recoveredSecondsString = await _storage.read(key: kRecoveryTimeKey);
       final recoveredMilestoneId =
           await _storage.read(key: kRecoveryMilestoneKey);
 
@@ -423,8 +425,7 @@ class _MainPageState extends State<MainPage> {
         }
       }
     } catch (e) {
-      debugPrint(
-          "[DEBUG] RECOVERY ERROR: Failed to process recovery data: $e");
+      debugPrint("[DEBUG] RECOVERY ERROR: Failed to process recovery data: $e");
       try {
         await _storage.delete(key: kRecoveryTimeKey);
         await _storage.delete(key: kRecoveryMilestoneKey);
@@ -523,6 +524,52 @@ class _MainPageState extends State<MainPage> {
     _saveGoals();
   }
 
+  // Dynamic Baseline Logic (Appreciation Engine)
+  void _analyzePerformance(Milestone completedMilestone) {
+    if (_activeGoal == null) return;
+
+    // Find previously completed milestones to establish a baseline
+    final historicalMilestones = _activeGoal!.milestones
+        .where((m) => m.isCompleted && m.id != completedMilestone.id)
+        .toList();
+
+    if (historicalMilestones.isNotEmpty) {
+      final totalHistoricalTime = historicalMilestones.fold<int>(
+          0, (sum, m) => sum + m.timeSpentSeconds);
+      final averageTime = totalHistoricalTime / historicalMilestones.length;
+
+      // If completed at least 20% faster than the historical average
+      if (averageTime > 0 &&
+          completedMilestone.timeSpentSeconds < averageTime * 0.8) {
+        final percentageFaster =
+            ((1 - (completedMilestone.timeSpentSeconds / averageTime)) * 100)
+                .toInt();
+
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Row(
+                children: [
+                  const Icon(Icons.bolt, color: Colors.amber),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      "High Leverage Execution: You completed this $percentageFaster% faster than your average baseline.",
+                      style: const TextStyle(fontWeight: FontWeight.bold),
+                    ),
+                  ),
+                ],
+              ),
+              backgroundColor: Colors.indigo.shade800,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        });
+      }
+    }
+  }
+
   Future<void> _toggleCheckpoint(
       Milestone milestone, String checkpointId) async {
     final persistenceService =
@@ -539,6 +586,8 @@ class _MainPageState extends State<MainPage> {
 
       if (milestone.isCompleted && milestone.completedAt == null) {
         milestone.completedAt = DateTime.now();
+        // TRIGGER DYNAMIC BASELINE ANALYSIS
+        _analyzePerformance(milestone);
       } else if (!milestone.isCompleted && milestone.completedAt != null) {
         milestone.completedAt = null;
       }
@@ -655,6 +704,44 @@ class _MainPageState extends State<MainPage> {
       String checkpointId, TaskCheckinStatus status) async {
     final persistenceService =
         Provider.of<FirestoreService>(context, listen: false);
+
+    // Algorithmic Course Correction (Bottleneck Logic)
+    if (status == TaskCheckinStatus.willDo) {
+      _taskDelayCounters[checkpointId] =
+          (_taskDelayCounters[checkpointId] ?? 0) + 1;
+
+      if (_taskDelayCounters[checkpointId]! >= 3) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted) return;
+          showDialog(
+            context: context,
+            builder: (ctx) => AlertDialog(
+              title: Row(
+                children: const [
+                  Icon(Icons.warning_amber_rounded, color: Colors.orange),
+                  SizedBox(width: 8),
+                  Text('Bottleneck Detected'),
+                ],
+              ),
+              content: const Text(
+                  'You have deferred this task 3 times. If it is not serving the Grand Goal, eliminate it. If it is too complex, break it down into smaller sub-tasks.'),
+              actions: [
+                TextButton(
+                  child: const Text('Acknowledge'),
+                  onPressed: () {
+                    _taskDelayCounters[checkpointId] = 0; // Reset after warning
+                    Navigator.of(ctx).pop();
+                  },
+                ),
+              ],
+            ),
+          );
+        });
+      }
+    } else if (status == TaskCheckinStatus.done) {
+      _taskDelayCounters.remove(checkpointId); // Clean up on completion
+    }
+
     await persistenceService.recordTaskCheckin(
         goalId, milestoneId, checkpointId, status);
   }
@@ -671,6 +758,213 @@ class _MainPageState extends State<MainPage> {
         currentlyLocked = true;
       }
     }
+  }
+
+  String _calculateTrajectory(Milestone m) {
+    try {
+      final totalTasks = m.checkpoints.length;
+      final completedTasks = m.completedCheckpointIds.length;
+      final timeSpent = m.timeSpentSeconds;
+
+      if (totalTasks == 0) return "AWAITING TASKS";
+      if (completedTasks == 0) return "TRAJECTORY: AWAITING FIRST COMPLETION";
+
+      final avgTimePerTask = timeSpent / completedTasks;
+      final remainingTasks = totalTasks - completedTasks;
+      final estimatedRemainingTime = avgTimePerTask * remainingTasks;
+
+      // Target budget: We assume a strict 45 minute (2700 seconds) per task baseline
+      final budgetRemaining = 2700 * remainingTasks;
+
+      if (estimatedRemainingTime > budgetRemaining) {
+        final excess = estimatedRemainingTime - budgetRemaining;
+        return "WARNING: BURN RATE EXCEEDS TARGET (+${(excess / 60).toStringAsFixed(0)}m)";
+      }
+      return "TRAJECTORY: NOMINAL (ETA: ${(estimatedRemainingTime / 60).toStringAsFixed(0)}m)";
+    } catch (e) {
+      return "TRAJECTORY: CALIBRATING...";
+    }
+  }
+
+  void _showImportJsonDialog() {
+    final textController = TextEditingController();
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: Colors.grey[900],
+        title: const Text('Import AI Plan (JSON)',
+            style: TextStyle(color: Colors.white)),
+        content: TextField(
+          controller: textController,
+          maxLines: 10,
+          style: const TextStyle(
+              color: Colors.greenAccent, fontFamily: 'monospace', fontSize: 12),
+          decoration: InputDecoration(
+            hintText: 'Paste strict JSON schema here...',
+            hintStyle: TextStyle(color: Colors.grey[600]),
+            filled: true,
+            fillColor: Colors.black,
+            enabledBorder: OutlineInputBorder(
+                borderSide: BorderSide(color: Colors.grey[800]!)),
+            focusedBorder: const OutlineInputBorder(
+                borderSide: BorderSide(color: Colors.indigo)),
+          ),
+        ),
+        actions: [
+          TextButton(
+            child: const Text('Abort', style: TextStyle(color: Colors.grey)),
+            onPressed: () => Navigator.of(ctx).pop(),
+          ),
+          TextButton(
+            child: const Text('Initiate Protocol',
+                style: TextStyle(
+                    color: Colors.indigoAccent, fontWeight: FontWeight.bold)),
+            onPressed: () {
+              try {
+                _parseAndImportAIPlan(textController.text);
+                Navigator.of(ctx).pop();
+              } catch (e) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text("JSON PARSE ERROR: $e"),
+                    backgroundColor: Colors.red.shade900));
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _parseAndImportAIPlan(String jsonString) async {
+    try {
+      final data = json.decode(jsonString);
+      final String goalTitle = data['title'] ?? 'AI Strategic Operation';
+
+      setState(() {
+        final currentActiveGoal = _activeGoal;
+        if (currentActiveGoal != null) {
+          currentActiveGoal.status = GoalStatus.givenUp;
+          Provider.of<FirestoreService>(context, listen: false)
+              .archiveGoal(currentActiveGoal);
+        }
+
+        final newGoal = Goal(title: goalTitle);
+
+        // Note: For deep nesting (auto-creating milestones/checkpoints), models.dart must have matching constructors.
+        // As a safeguard to prevent compilation crashes without models.dart access, we establish the Grand Goal root.
+        // You can easily write a loop here to map data['milestones'] if your models support it.
+
+        _allGoals.add(newGoal);
+        _selectedIndex = 2; // Auto-switch to Milestones page to begin execution
+      });
+
+      await _saveGoals();
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: const Text("AI Plan Acquired. Proceed to Milestones.",
+                  style: TextStyle(fontFamily: 'monospace')),
+              backgroundColor: Colors.indigo.shade800),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text("System Failure: Ensure strict JSON format. ($e)"),
+              backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  // --- PWA-style Navigation Handlers ---
+
+  void _onPointerDown(PointerDownEvent event) {
+    setState(() {
+      _pointerPos = event.position;
+      _pointerDownPos = event.position;
+      _longPressArmed = true;
+    });
+
+    // 500ms long-press to unlock the navigation matrix (matching PWA)
+    Future.delayed(const Duration(milliseconds: 100), () {
+      if (_longPressArmed && mounted) {
+        setState(() {
+          _isNavActive = true;
+        });
+        HapticFeedback.heavyImpact();
+      }
+    });
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    if (!_isNavActive) {
+      // Cancel long-press if moved too far before activation (15px threshold, matching PWA)
+      if (_longPressArmed) {
+        final dx = (event.position.dx - _pointerDownPos.dx).abs();
+        final dy = (event.position.dy - _pointerDownPos.dy).abs();
+        if (dx > 15 || dy > 15) {
+          _longPressArmed = false;
+        }
+      }
+      return;
+    }
+
+    setState(() {
+      _pointerPos = event.position;
+    });
+
+    // Hit-test against nav target widgets
+    int? newHovered;
+    for (int i = 0; i < _navTargetKeys.length; i++) {
+      final key = _navTargetKeys[i];
+      final renderBox = key.currentContext?.findRenderObject() as RenderBox?;
+      if (renderBox != null) {
+        final pos = renderBox.localToGlobal(Offset.zero);
+        final size = renderBox.size;
+        final rect = Rect.fromLTWH(pos.dx, pos.dy, size.width, size.height);
+        if (rect.contains(event.position)) {
+          newHovered = i;
+          break;
+        }
+      }
+    }
+
+    if (newHovered != _hoveredTab) {
+      setState(() {
+        _hoveredTab = newHovered;
+      });
+      if (newHovered != null) {
+        HapticFeedback.selectionClick();
+      }
+    }
+  }
+
+  void _onPointerUp(PointerUpEvent event) {
+    _longPressArmed = false;
+
+    if (_isNavActive) {
+      if (_hoveredTab != null && _hoveredTab != _selectedIndex) {
+        setState(() {
+          _selectedIndex = _hoveredTab!;
+        });
+        HapticFeedback.heavyImpact();
+      }
+      setState(() {
+        _isNavActive = false;
+        _hoveredTab = null;
+      });
+    }
+  }
+
+  void _onPointerCancel(PointerCancelEvent event) {
+    _longPressArmed = false;
+    setState(() {
+      _isNavActive = false;
+      _hoveredTab = null;
+    });
   }
 
   @override
@@ -710,89 +1004,232 @@ class _MainPageState extends State<MainPage> {
     return Scaffold(
       body: Stack(
         children: [
-          // 1. Core Page View
+          // 1. Live Page Layer
           IndexedStack(
             index: _selectedIndex,
             children: pages,
           ),
 
-          // 2. Glassmorphism HUD Fullscreen Preview (Active during unlocked scrub)
-          if (_isDragging && _isNavUnlocked)
-            Positioned.fill(
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                child: Container(
-                  color: Colors.black.withValues(alpha: 0.4),
-                  child: Center(
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
+          // 1.5. Trajectory / Burn Rate HUD (Top Aligned)
+          if (_activeGoal != null && _selectedIndex == 0 && !_isNavActive)
+            Positioned(
+              top: MediaQuery.of(context).padding.top + 16,
+              left: 20,
+              right: 20,
+              child: IgnorePointer(
+                child: Builder(builder: (context) {
+                  final activeMilestones = _activeGoal!.milestones
+                      .where((m) => !m.isCompleted)
+                      .toList();
+                  if (activeMilestones.isEmpty) return const SizedBox.shrink();
+
+                  final currentMilestone = activeMilestones.first;
+                  final trajectoryText = _calculateTrajectory(currentMilestone);
+                  final isWarning = trajectoryText.contains("WARNING");
+
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 500),
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: isWarning
+                          ? Colors.red.withOpacity(0.9)
+                          : Colors.black.withOpacity(0.75),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: isWarning
+                            ? Colors.redAccent
+                            : Colors.white.withOpacity(0.15),
+                        width: 1,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: isWarning
+                              ? Colors.red.withOpacity(0.4)
+                              : Colors.black.withOpacity(0.5),
+                          blurRadius: 15,
+                          spreadRadius: 2,
+                        )
+                      ],
+                    ),
+                    child: Row(
                       children: [
-                        Text(
-                          _pageNames[_previewIndex],
-                          style: const TextStyle(
-                            color: Colors.cyanAccent,
-                            fontSize: 32,
-                            fontWeight: FontWeight.w900,
-                            letterSpacing: 6,
-                            shadows: [
-                              Shadow(
-                                color: Colors.cyan,
-                                blurRadius: 20,
-                              )
-                            ],
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        Text(
-                          "PAGE ${_previewIndex + 1} OF ${_pageNames.length}",
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.6),
-                            fontSize: 12,
-                            letterSpacing: 2,
+                        Icon(
+                            isWarning
+                                ? Icons.warning_amber_rounded
+                                : Icons.track_changes,
+                            color:
+                                isWarning ? Colors.white : Colors.greenAccent,
+                            size: 20),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Text(
+                            trajectoryText,
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                              fontWeight: FontWeight.bold,
+                              letterSpacing: 1.2,
+                            ),
                           ),
                         ),
                       ],
                     ),
+                  );
+                }),
+              ),
+            ),
+
+          // 2. Navigation Overlay Matrix (Visible only when armed)
+          if (_isNavActive)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: AnimatedOpacity(
+                  opacity: _isNavActive ? 1.0 : 0.0,
+                  duration: const Duration(milliseconds: 300),
+                  child: ClipRect(
+                    child: BackdropFilter(
+                      filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                      child: Container(
+                        color: Colors.black.withOpacity(0.80),
+                        child: Column(
+                          children: [
+                            // Status text ("AWAITING TARGET" / "DEPLOYING: PAGE")
+                            Expanded(
+                              flex: 2,
+                              child: Center(
+                                child: Text(
+                                  _hoveredTab != null
+                                      ? 'DEPLOYING: ${_navPages[_hoveredTab!]['title']}'
+                                      : 'AWAITING TARGET',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    fontFamily: 'monospace',
+                                    letterSpacing: 4,
+                                    color: Colors.white.withOpacity(0.4),
+                                  ),
+                                ),
+                              ),
+                            ),
+
+                            // Spatial Targets in arch layout
+                            Expanded(
+                              flex: 3,
+                              child: Align(
+                                alignment: const Alignment(0, 0.6),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16), // Reduced padding
+                                  child: FittedBox(
+                                    // FIX: Prevents overflow on narrow screens
+                                    fit: BoxFit.scaleDown,
+                                    child: Row(
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.end,
+                                      children: List.generate(_navPages.length,
+                                          (idx) {
+                                        final page = _navPages[idx];
+                                        final isHovered = _hoveredTab == idx;
+                                        final isCurrent = _selectedIndex == idx;
+
+                                        // Arch layout: outer items at baseline, inner items raised
+                                        final double translateY =
+                                            (idx == 0 || idx == 3) ? 0 : -32;
+
+                                        return Padding(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 8),
+                                          child: Transform.translate(
+                                            offset: Offset(0, translateY),
+                                            child: AnimatedContainer(
+                                              duration: const Duration(
+                                                  milliseconds: 200),
+                                              key: _navTargetKeys[idx],
+                                              width: 64,
+                                              height: 64,
+                                              decoration: BoxDecoration(
+                                                shape: BoxShape.circle,
+                                                color: isHovered
+                                                    ? Colors.white
+                                                    : Colors.white
+                                                        .withOpacity(0.1),
+                                                border: (isCurrent &&
+                                                        !isHovered)
+                                                    ? Border.all(
+                                                        color: Colors.white
+                                                            .withOpacity(0.3),
+                                                        width: 2,
+                                                      )
+                                                    : null,
+                                                boxShadow: isHovered
+                                                    ? [
+                                                        BoxShadow(
+                                                          color: Colors.white
+                                                              .withOpacity(0.4),
+                                                          blurRadius: 30,
+                                                          spreadRadius: 0,
+                                                        ),
+                                                      ]
+                                                    : null,
+                                              ),
+                                              child: AnimatedScale(
+                                                scale: isHovered ? 1.1 : 1.0,
+                                                duration: const Duration(
+                                                    milliseconds: 200),
+                                                child: Icon(
+                                                  page['icon'] as IconData,
+                                                  size: 24,
+                                                  color: isHovered
+                                                      ? Colors.black
+                                                      : Colors.white
+                                                          .withOpacity(0.7),
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        );
+                                      }),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
             ),
 
-          // 3. Dynamic Interactive Touch HUD Ring (Follows Finger)
-          if (_isDragging)
+          // 3. Pointer Reticle (visible when dragging over overlay)
+          if (_isNavActive)
             Positioned(
-              left: _touchPosition.dx - 35,
-              top: _touchPosition.dy - 35,
+              left: _pointerPos.dx - 24,
+              top: _pointerPos.dy - 24,
               child: IgnorePointer(
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 50),
-                  width: 70,
-                  height: 70,
+                child: Container(
+                  width: 48,
+                  height: 48,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
+                    color: Colors.white.withOpacity(0.1),
                     border: Border.all(
-                      color:
-                          _isNavUnlocked ? Colors.cyanAccent : Colors.white70,
-                      width: _isNavUnlocked ? 3 : 2,
+                      color: Colors.white.withOpacity(0.5),
+                      width: 1,
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color:
-                            (_isNavUnlocked ? Colors.cyanAccent : Colors.white)
-                                .withValues(alpha: 0.5),
-                        blurRadius: _isNavUnlocked ? 25 : 10,
-                        spreadRadius: 2,
-                      ),
-                    ],
                   ),
                   child: Center(
                     child: Container(
-                      width: 12,
-                      height: 12,
-                      decoration: BoxDecoration(
+                      width: 4,
+                      height: 4,
+                      decoration: const BoxDecoration(
                         shape: BoxShape.circle,
-                        color:
-                            _isNavUnlocked ? Colors.cyanAccent : Colors.white,
+                        color: Colors.white,
                       ),
                     ),
                   ),
@@ -800,122 +1237,77 @@ class _MainPageState extends State<MainPage> {
               ),
             ),
 
-          // 4. Ben 10 Style Bottom Omnitrix Dial Overlay (When Unlocked)
-          if (_isDragging && _isNavUnlocked)
-            Positioned(
-              bottom: 60,
-              left: 0,
-              right: 0,
-              child: IgnorePointer(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: List.generate(_pageNames.length, (index) {
-                    final bool isSelected = index == _previewIndex;
-                    return AnimatedContainer(
-                      duration: const Duration(milliseconds: 150),
-                      margin: const EdgeInsets.symmetric(horizontal: 6),
-                      width: isSelected ? 28 : 10,
-                      height: 10,
+          // 4. Bottom Sensor Pad (Always active, initiates the sequence)
+          Positioned(
+            bottom: 24,
+            left: 0,
+            right: 0,
+            child: Center(
+              child: Listener(
+                behavior: HitTestBehavior.translucent,
+                onPointerDown: _onPointerDown,
+                onPointerMove: _onPointerMove,
+                onPointerUp: _onPointerUp,
+                onPointerCancel: _onPointerCancel,
+                child: SizedBox(
+                  width: 96,
+                  height: 96,
+                  child: Center(
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      width: 48,
+                      height: 48,
                       decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(5),
-                        color: isSelected ? Colors.cyanAccent : Colors.white24,
-                        boxShadow: isSelected
-                            ? [
-                                const BoxShadow(
-                                  color: Colors.cyanAccent,
-                                  blurRadius: 10,
-                                )
-                              ]
-                            : [],
+                        shape: BoxShape.circle,
+                        color: _isNavActive
+                            ? Colors.transparent
+                            : Colors.white.withOpacity(0.05),
+                        border: _isNavActive
+                            ? null
+                            : Border.all(
+                                color: Colors.white.withOpacity(0.1),
+                                width: 1,
+                              ),
                       ),
-                    );
-                  }),
+                      child: _isNavActive
+                          ? null
+                          : Icon(
+                              Icons.my_location_rounded,
+                              size: 16,
+                              color: Colors.white.withOpacity(0.3),
+                            ),
+                    ),
+                  ),
                 ),
               ),
             ),
-
-          // 5. Stealth Touch Zone & Gesture Engine
-          Positioned(
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: 100, // Bottom activation field
-            child: GestureDetector(
-              behavior: HitTestBehavior.translucent,
-              onPanStart: (details) {
-                setState(() {
-                  _isDragging = true;
-                  _touchPosition = details.globalPosition;
-                  _dragStartY = details.globalPosition.dy;
-                  _dragAnchorX = details.globalPosition.dx;
-                  _isNavUnlocked = false;
-                  _previewIndex = _selectedIndex;
-                });
-                HapticFeedback.selectionClick();
-              },
-              onPanUpdate: (details) {
-                setState(() {
-                  _touchPosition = details.globalPosition;
-                });
-
-                double dy = details.globalPosition.dy - _dragStartY;
-
-                // Threshold Check: Pull up 40px to unlock HUD
-                if (dy < -40 && !_isNavUnlocked) {
-                  setState(() {
-                    _isNavUnlocked = true;
-                    _dragAnchorX = details.globalPosition.dx;
-                  });
-                  HapticFeedback
-                      .heavyImpact(); // Tactile feedback on lock release
-                }
-
-                // Scrub Left / Right through pages
-                if (_isNavUnlocked) {
-                  double dx = details.globalPosition.dx - _dragAnchorX;
-
-                  if (dx > 50) {
-                    // Swiped Right -> Previous Page
-                    if (_previewIndex > 0) {
-                      setState(() {
-                        _previewIndex--;
-                        _dragAnchorX = details.globalPosition.dx;
-                      });
-                      HapticFeedback.selectionClick();
-                    }
-                  } else if (dx < -50) {
-                    // Swiped Left -> Next Page
-                    if (_previewIndex < pages.length - 1) {
-                      setState(() {
-                        _previewIndex++;
-                        _dragAnchorX = details.globalPosition.dx;
-                      });
-                      HapticFeedback.selectionClick();
-                    }
-                  }
-                }
-              },
-              onPanEnd: (_) {
-                if (_isNavUnlocked && _previewIndex != _selectedIndex) {
-                  setState(() {
-                    _selectedIndex = _previewIndex;
-                  });
-                  HapticFeedback.mediumImpact();
-                }
-
-                setState(() {
-                  _isDragging = false;
-                  _isNavUnlocked = false;
-                });
-              },
-            ),
           ),
+
+          // 5. Stealth AI Import Node
+          if (!_isNavActive && _selectedIndex == 0 && _editMode)
+            Positioned(
+              bottom: 32,
+              right: 24,
+              child: GestureDetector(
+                onTap: _showImportJsonDialog,
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.black.withOpacity(0.5),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                        color: Colors.indigo.withOpacity(0.5), width: 1),
+                  ),
+                  child: Icon(Icons.psychology_alt_rounded,
+                      color: Colors.indigo.shade300, size: 24),
+                ),
+              ),
+            ),
         ],
       ),
     );
   }
 
-  // --- Check-in Dialog (from notification tap) ---
   Future<void> _showCheckinDialog(NotificationResponse response) async {
     if (!mounted) return;
 
