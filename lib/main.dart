@@ -18,6 +18,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'dart:io' show Platform;
+import 'dart:math' as math;
 import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import 'package:timezone/data/latest.dart' as tz;
@@ -243,6 +244,7 @@ class _MainPageState extends State<MainPage> {
   List<Goal> _allGoals = [];
   bool _editMode = true;
   bool _isLoading = true;
+  bool _dismissedBanner = false;
 
   // --- Analytics & Insights State ---
   final Map<String, int> _taskDelayCounters =
@@ -716,8 +718,8 @@ class _MainPageState extends State<MainPage> {
           showDialog(
             context: context,
             builder: (ctx) => AlertDialog(
-              title: Row(
-                children: const [
+              title: const Row( // FIX: Added const to the Row as requested by IDE
+                children: [
                   Icon(Icons.warning_amber_rounded, color: Colors.orange),
                   SizedBox(width: 8),
                   Text('Bottleneck Detected'),
@@ -778,9 +780,9 @@ class _MainPageState extends State<MainPage> {
 
       if (estimatedRemainingTime > budgetRemaining) {
         final excess = estimatedRemainingTime - budgetRemaining;
-        return "WARNING: BURN RATE EXCEEDS TARGET (+${(excess / 60).toStringAsFixed(0)}m)";
+        return "WARNING: BURN RATE EXCEEDS TARGET (+${(excess/60).toStringAsFixed(0)}m)";
       }
-      return "TRAJECTORY: NOMINAL (ETA: ${(estimatedRemainingTime / 60).toStringAsFixed(0)}m)";
+      return "TRAJECTORY: NOMINAL (ETA: ${(estimatedRemainingTime/60).toStringAsFixed(0)}m)";
     } catch (e) {
       return "TRAJECTORY: CALIBRATING...";
     }
@@ -792,22 +794,18 @@ class _MainPageState extends State<MainPage> {
       context: context,
       builder: (ctx) => AlertDialog(
         backgroundColor: Colors.grey[900],
-        title: const Text('Import AI Plan (JSON)',
-            style: TextStyle(color: Colors.white)),
+        title: const Text('Import AI Plan (JSON)', style: TextStyle(color: Colors.white)),
         content: TextField(
           controller: textController,
           maxLines: 10,
-          style: const TextStyle(
-              color: Colors.greenAccent, fontFamily: 'monospace', fontSize: 12),
+          style: const TextStyle(color: Colors.greenAccent, fontFamily: 'monospace', fontSize: 12),
           decoration: InputDecoration(
             hintText: 'Paste strict JSON schema here...',
             hintStyle: TextStyle(color: Colors.grey[600]),
             filled: true,
             fillColor: Colors.black,
-            enabledBorder: OutlineInputBorder(
-                borderSide: BorderSide(color: Colors.grey[800]!)),
-            focusedBorder: const OutlineInputBorder(
-                borderSide: BorderSide(color: Colors.indigo)),
+            enabledBorder: OutlineInputBorder(borderSide: BorderSide(color: Colors.grey[800]!)),
+            focusedBorder: const OutlineInputBorder(borderSide: BorderSide(color: Colors.indigo)),
           ),
         ),
         actions: [
@@ -816,17 +814,16 @@ class _MainPageState extends State<MainPage> {
             onPressed: () => Navigator.of(ctx).pop(),
           ),
           TextButton(
-            child: const Text('Initiate Protocol',
-                style: TextStyle(
-                    color: Colors.indigoAccent, fontWeight: FontWeight.bold)),
+            child: const Text('Initiate Protocol', style: TextStyle(color: Colors.indigoAccent, fontWeight: FontWeight.bold)),
             onPressed: () {
               try {
                 _parseAndImportAIPlan(textController.text);
                 Navigator.of(ctx).pop();
               } catch (e) {
                 ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text("JSON PARSE ERROR: $e"),
-                    backgroundColor: Colors.red.shade900));
+                  content: Text("JSON PARSE ERROR: $e"), 
+                  backgroundColor: Colors.red.shade900
+                ));
               }
             },
           ),
@@ -844,40 +841,52 @@ class _MainPageState extends State<MainPage> {
         final currentActiveGoal = _activeGoal;
         if (currentActiveGoal != null) {
           currentActiveGoal.status = GoalStatus.givenUp;
-          Provider.of<FirestoreService>(context, listen: false)
-              .archiveGoal(currentActiveGoal);
+          Provider.of<FirestoreService>(context, listen: false).archiveGoal(currentActiveGoal);
         }
 
         final newGoal = Goal(title: goalTitle);
-
-        // Note: For deep nesting (auto-creating milestones/checkpoints), models.dart must have matching constructors.
-        // As a safeguard to prevent compilation crashes without models.dart access, we establish the Grand Goal root.
-        // You can easily write a loop here to map data['milestones'] if your models support it.
-
+        
+        // Recursively parse milestones and checkpoints
+        if (data['milestones'] != null && data['milestones'] is List) {
+          for (var mData in data['milestones']) {
+            final newMilestone = Milestone(
+              title: mData['title'] ?? 'Strategic Phase',
+              deadline: DateTime.now().add(const Duration(days: 7)),
+              checkpoints: [], // FIX: Provided the required 'checkpoints' parameter
+            );
+            if (mData['checkpoints'] != null && mData['checkpoints'] is List) {
+              for (var cData in mData['checkpoints']) {
+                newMilestone.checkpoints.add(Checkpoint(title: cData['title'] ?? 'Action Item'));
+              }
+            }
+            newGoal.milestones.add(newMilestone);
+          }
+        }
+        
         _allGoals.add(newGoal);
         _selectedIndex = 2; // Auto-switch to Milestones page to begin execution
+        _dismissedBanner = false; // Reset banner state for the new goal
       });
-
+      
       await _saveGoals();
-
+      
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: const Text("AI Plan Acquired. Proceed to Milestones.",
-                  style: TextStyle(fontFamily: 'monospace')),
-              backgroundColor: Colors.indigo.shade800),
+            content: const Text("AI Plan Acquired. Proceed to Milestones.", style: TextStyle(fontFamily: 'monospace')), 
+            backgroundColor: Colors.indigo.shade800
+          ),
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text("System Failure: Ensure strict JSON format. ($e)"),
-              backgroundColor: Colors.red),
+         ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("System Failure: Ensure strict JSON format. ($e)"), backgroundColor: Colors.red),
         );
       }
     }
   }
+
 
   // --- PWA-style Navigation Handlers ---
 
@@ -916,18 +925,35 @@ class _MainPageState extends State<MainPage> {
       _pointerPos = event.position;
     });
 
-    // Hit-test against nav target widgets
+    final size = MediaQuery.of(context).size;
+    final origin = Offset(size.width / 2, size.height - 48); // Approximate origin of the sensor pad
+
+    final dx = event.position.dx - origin.dx;
+    final dy = origin.dy - event.position.dy; // Standard cartesian (y is up)
+
+    final distance = math.sqrt(dx * dx + dy * dy);
     int? newHovered;
-    for (int i = 0; i < _navTargetKeys.length; i++) {
-      final key = _navTargetKeys[i];
-      final renderBox = key.currentContext?.findRenderObject() as RenderBox?;
-      if (renderBox != null) {
-        final pos = renderBox.localToGlobal(Offset.zero);
-        final size = renderBox.size;
-        final rect = Rect.fromLTWH(pos.dx, pos.dy, size.width, size.height);
-        if (rect.contains(event.position)) {
-          newHovered = i;
-          break;
+
+    if (distance > 30) { // Deadzone in the center so you have to actually drag out
+      final angle = math.atan2(dy, dx);
+      final angleDegrees = angle * 180 / math.pi;
+
+      // Only track if moving generally upwards or far enough sideways
+      if (dy > -20) {
+        double checkAngle = angleDegrees;
+        // Normalize slightly negative angles (if dragging straight left/right)
+        if (checkAngle < 0 && dx > 0) checkAngle = 0;
+        if (checkAngle < 0 && dx < 0) checkAngle = 180;
+
+        // Sector allocation based exactly on your drawn radial arch!
+        if (checkAngle > 120) {
+          newHovered = 0; // Home (Far Left Sector)
+        } else if (checkAngle > 90) {
+          newHovered = 1; // Reports (Mid Left Sector)
+        } else if (checkAngle > 60) {
+          newHovered = 2; // Milestones (Mid Right Sector)
+        } else {
+          newHovered = 3; // Settings (Far Right Sector)
         }
       }
     }
@@ -1011,42 +1037,32 @@ class _MainPageState extends State<MainPage> {
           ),
 
           // 1.5. Trajectory / Burn Rate HUD (Top Aligned)
-          if (_activeGoal != null && _selectedIndex == 0 && !_isNavActive)
+          if (_activeGoal != null && _selectedIndex == 0 && !_isNavActive && !_dismissedBanner)
             Positioned(
               top: MediaQuery.of(context).padding.top + 16,
               left: 20,
               right: 20,
-              child: IgnorePointer(
-                child: Builder(builder: (context) {
-                  final activeMilestones = _activeGoal!.milestones
-                      .where((m) => !m.isCompleted)
-                      .toList();
+              child: Builder(builder: (context) {
+                  final activeMilestones = _activeGoal!.milestones.where((m) => !m.isCompleted).toList();
                   if (activeMilestones.isEmpty) return const SizedBox.shrink();
-
+                  
                   final currentMilestone = activeMilestones.first;
                   final trajectoryText = _calculateTrajectory(currentMilestone);
                   final isWarning = trajectoryText.contains("WARNING");
 
                   return AnimatedContainer(
                     duration: const Duration(milliseconds: 500),
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
+                    padding: const EdgeInsets.only(left: 16, top: 6, bottom: 6, right: 6),
                     decoration: BoxDecoration(
-                      color: isWarning
-                          ? Colors.red.withOpacity(0.9)
-                          : Colors.black.withOpacity(0.75),
+                      color: isWarning ? Colors.red.withOpacity(0.9) : Colors.black.withOpacity(0.75),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
-                        color: isWarning
-                            ? Colors.redAccent
-                            : Colors.white.withOpacity(0.15),
+                        color: isWarning ? Colors.redAccent : Colors.white.withOpacity(0.15),
                         width: 1,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: isWarning
-                              ? Colors.red.withOpacity(0.4)
-                              : Colors.black.withOpacity(0.5),
+                          color: isWarning ? Colors.red.withOpacity(0.4) : Colors.black.withOpacity(0.5),
                           blurRadius: 15,
                           spreadRadius: 2,
                         )
@@ -1055,12 +1071,10 @@ class _MainPageState extends State<MainPage> {
                     child: Row(
                       children: [
                         Icon(
-                            isWarning
-                                ? Icons.warning_amber_rounded
-                                : Icons.track_changes,
-                            color:
-                                isWarning ? Colors.white : Colors.greenAccent,
-                            size: 20),
+                          isWarning ? Icons.warning_amber_rounded : Icons.track_changes, 
+                          color: isWarning ? Colors.white : Colors.greenAccent, 
+                          size: 20
+                        ),
                         const SizedBox(width: 12),
                         Expanded(
                           child: Text(
@@ -1074,11 +1088,20 @@ class _MainPageState extends State<MainPage> {
                             ),
                           ),
                         ),
+                        IconButton(
+                          icon: const Icon(Icons.close_rounded, color: Colors.white54, size: 18),
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                          onPressed: () {
+                            setState(() {
+                              _dismissedBanner = true;
+                            });
+                          },
+                        ),
                       ],
                     ),
                   );
                 }),
-              ),
             ),
 
           // 2. Navigation Overlay Matrix (Visible only when armed)
@@ -1295,11 +1318,9 @@ class _MainPageState extends State<MainPage> {
                   decoration: BoxDecoration(
                     color: Colors.black.withOpacity(0.5),
                     shape: BoxShape.circle,
-                    border: Border.all(
-                        color: Colors.indigo.withOpacity(0.5), width: 1),
+                    border: Border.all(color: Colors.indigo.withOpacity(0.5), width: 1),
                   ),
-                  child: Icon(Icons.psychology_alt_rounded,
-                      color: Colors.indigo.shade300, size: 24),
+                  child: Icon(Icons.psychology_alt_rounded, color: Colors.indigo.shade300, size: 24),
                 ),
               ),
             ),
