@@ -27,7 +27,7 @@ const String kRecoveryMilestoneKey = 'recovery_milestone_id';
 class HomePage extends StatefulWidget {
   final Goal? activeGoal;
   final Function(String) onSetGoal;
-  final Function(String, Duration) onTimeAdd;
+  final Function(String, Duration, {String? checkpointId}) onTimeAdd;
   final VoidCallback onGiveUp;
 
   const HomePage(
@@ -246,7 +246,7 @@ class _HomePageState extends State<HomePage> {
 class GoalTimerCircle extends StatefulWidget {
   final Goal goal;
   final Milestone nextMilestone;
-  final Function(String, Duration) onTimeAdd;
+  final Function(String, Duration, {String? checkpointId}) onTimeAdd;
   final double size;
 
   const GoalTimerCircle({
@@ -268,6 +268,8 @@ class _GoalTimerCircleState extends State<GoalTimerCircle>
   int _secondsElapsed = 0;
   bool _isTimerRunning = false;
   bool _showTimer = false;
+  String? _selectedCheckpointId;
+
 
   @override
   void initState() {
@@ -291,7 +293,61 @@ class _GoalTimerCircleState extends State<GoalTimerCircle>
   }
 
   void _startTimer() async {
+    // Show task picker before starting the timer
+    final checkpoints = widget.nextMilestone.checkpoints
+        .where((c) => !widget.nextMilestone.completedCheckpointIds.contains(c.id))
+        .toList();
+
+    String? selectedId;
+    if (checkpoints.isNotEmpty) {
+      selectedId = await showModalBottomSheet<String>(
+        context: context,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+        ),
+        builder: (ctx) {
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 12),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                    child: Text(
+                      'Tag this session',
+                      style: Theme.of(ctx).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                  ),
+                  const Divider(),
+                  ListTile(
+                    leading: const Icon(Icons.flag_rounded),
+                    title: Text(widget.nextMilestone.title),
+                    subtitle: const Text('Log time to milestone (no specific task)'),
+                    onTap: () => Navigator.of(ctx).pop(null),
+                  ),
+                  ...checkpoints.map((cp) => ListTile(
+                        leading: const Icon(Icons.task_alt_rounded),
+                        title: Text(cp.title),
+                        onTap: () => Navigator.of(ctx).pop(cp.id),
+                      )),
+                ],
+              ),
+            ),
+          );
+        },
+      );
+
+      // If the user dismissed the sheet without picking, use null (milestone-level)
+      // The sheet returns null both for "milestone" pick and for dismiss, which is fine.
+    }
+
+    if (!mounted) return;
+
     setState(() {
+      _selectedCheckpointId = selectedId;
       _isTimerRunning = true;
       _showTimer = true;
     });
@@ -328,16 +384,19 @@ class _GoalTimerCircleState extends State<GoalTimerCircle>
 
     if (_secondsElapsed > 0) {
       widget.onTimeAdd(
-          widget.nextMilestone.id, Duration(seconds: _secondsElapsed));
+          widget.nextMilestone.id, Duration(seconds: _secondsElapsed),
+          checkpointId: _selectedCheckpointId);
     }
 
     setState(() {
       _secondsElapsed = 0;
       _isTimerRunning = false;
       _showTimer = false;
+      _selectedCheckpointId = null;
       _animationController.reset();
     });
   }
+
 
   void _onLongPress() {
     if (_isTimerRunning) {
@@ -383,14 +442,23 @@ class _GoalTimerCircleState extends State<GoalTimerCircle>
     return "$hours:$minutes:$seconds";
   }
 
+  String _getCheckpointTitle(String checkpointId) {
+    try {
+      return widget.nextMilestone.checkpoints
+          .firstWhere((c) => c.id == checkpointId)
+          .title;
+    } catch (_) {
+      return 'Task';
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final Color primaryColor = Theme.of(context).colorScheme.primary;
     final String totalTimeText = _formatTotalTime(widget.goal.totalTimeSpent);
-    final double baseFontSize = widget.size / 5.5; 
-    final double fontSize = totalTimeText.length > 8
-        ? baseFontSize * 0.83
-        : baseFontSize; 
+    final double baseFontSize = widget.size / 5.5;
+    final double fontSize =
+        totalTimeText.length > 8 ? baseFontSize * 0.83 : baseFontSize;
 
     final TextStyle numberStyle = TextStyle(
       fontSize: fontSize,
@@ -405,12 +473,11 @@ class _GoalTimerCircleState extends State<GoalTimerCircle>
 
     final List<TextSpan> spans = [];
     final RegExp simpleRegex = RegExp(r'(\d+)([hms])');
-    final parts =
-        totalTimeText.split(' '); 
+    final parts = totalTimeText.split(' ');
 
     for (int i = 0; i < parts.length; i++) {
       final part = parts[i];
-      final match = simpleRegex.firstMatch(part); 
+      final match = simpleRegex.firstMatch(part);
 
       if (match != null) {
         spans.add(TextSpan(text: match.group(1), style: numberStyle));
@@ -452,14 +519,35 @@ class _GoalTimerCircleState extends State<GoalTimerCircle>
             ),
             AnimatedCrossFade(
               duration: const Duration(milliseconds: 300),
-              firstChild: Text(
-                _formatRunningTime(_secondsElapsed),
-                style: TextStyle(
-                  fontSize: widget.size / 5.5,
-                  fontWeight: FontWeight.bold,
-                  color: primaryColor,
-                  fontFamily: 'monospace',
-                ),
+              firstChild: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    _formatRunningTime(_secondsElapsed),
+                    style: TextStyle(
+                      fontSize: widget.size / 5.5,
+                      fontWeight: FontWeight.bold,
+                      color: primaryColor,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  if (_selectedCheckpointId != null) ...[
+                    const SizedBox(height: 4),
+                    SizedBox(
+                      width: widget.size * 0.6,
+                      child: Text(
+                        _getCheckpointTitle(_selectedCheckpointId!),
+                        textAlign: TextAlign.center,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: widget.size / 14,
+                          color: primaryColor.withAlpha(180),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
               ),
               secondChild: RichText(
                 textAlign: TextAlign.center,
@@ -629,7 +717,6 @@ class GoalDetailsPage extends StatelessWidget {
           const SizedBox(height: 24),
           Text("Milestones", style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
-
           if (goal.milestones.isEmpty)
             const Center(
               child: Text("No milestones were added for this goal."),
@@ -642,9 +729,9 @@ class GoalDetailsPage extends StatelessWidget {
                 milestone: milestone,
                 isFirst: index == 0,
                 isLast: index == goal.milestones.length - 1,
-                onToggleCheckpoint: (m, c) {}, 
-                onDelete: () {}, 
-                editMode: false, 
+                onToggleCheckpoint: (m, c) {},
+                onDelete: () {},
+                editMode: false,
                 lineColor: lineColor,
               );
             }),
@@ -923,17 +1010,48 @@ class NotificationsSettingsPageState extends State<NotificationsSettingsPage> {
                   label: _notificationCount.toString(),
                   onChanged: (value) {
                     setState(() {
-                      final newCount = value.toInt();
-                      while (_notificationTimes.length < newCount) {
-                        _notificationTimes
-                            .add(const TimeOfDay(hour: 9, minute: 0));
+                      _notificationCount = value.toInt();
+                      // Add or remove times to match the count
+                      if (_notificationTimes.length < _notificationCount) {
+                        int diff =
+                            _notificationCount - _notificationTimes.length;
+                        for (int i = 0; i < diff; i++) {
+                          _notificationTimes
+                              .add(const TimeOfDay(hour: 9, minute: 0));
+                        }
+                      } else if (_notificationTimes.length >
+                          _notificationCount) {
+                        _notificationTimes =
+                            _notificationTimes.sublist(0, _notificationCount);
                       }
-                      while (_notificationTimes.length > newCount) {
-                        _notificationTimes.removeLast();
-                      }
-                      _notificationCount = newCount;
                     });
                   },
+                ),
+                ...List.generate(_notificationCount, (index) {
+                  return ListTile(
+                    title: Text("Reminder ${index + 1} Time"),
+                    trailing: Text(_notificationTimes[index].format(context)),
+                    onTap: () async {
+                      final time = await showTimePicker(
+                        context: context,
+                        initialTime: _notificationTimes[index],
+                      );
+                      if (time != null) {
+                        setState(() {
+                          _notificationTimes[index] = time;
+                        });
+                      }
+                    },
+                  );
+                }),
+                const SizedBox(height: 24),
+                ElevatedButton.icon(
+                  onPressed: _updateAndSaveChanges,
+                  icon: const Icon(Icons.save_rounded),
+                  label: const Text("Save Settings"),
+                  style: ElevatedButton.styleFrom(
+                    padding: const EdgeInsets.symmetric(vertical: 12),
+                  ),
                 ),
                 const Divider(),
                 for (int i = 0; i < _notificationCount; i++)

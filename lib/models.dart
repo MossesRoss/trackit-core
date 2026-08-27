@@ -49,22 +49,27 @@ class TaskCheckin {
 class TimeSession {
   final DateTime timestamp;
   final Duration duration;
+  final String? checkpointId; // Optional: tag session to a specific task
 
   TimeSession({
     required this.timestamp,
     required this.duration,
+    this.checkpointId,
   });
 
   Map<String, dynamic> toJson() => {
         'timestamp': timestamp.toIso8601String(),
-        'durationInSeconds': duration.inSeconds,
+        'durationSeconds': duration.inSeconds,
+        if (checkpointId != null) 'checkpointId': checkpointId,
       };
 
   factory TimeSession.fromJson(Map<String, dynamic> json) => TimeSession(
         timestamp: DateTime.parse(json['timestamp']),
-        duration: Duration(seconds: json['durationInSeconds']),
+        duration: Duration(seconds: (json['durationSeconds'] as num).toInt()),
+        checkpointId: json['checkpointId'],
       );
 }
+
 
 // Enum for the status of a goal.
 enum GoalStatus { active, achieved, givenUp }
@@ -139,8 +144,6 @@ class Goal {
         isArchived: json['isArchived'] ?? false,
       );
 }
-
-// Represents a milestone within a larger goal.
 class Milestone {
   String id;
   String title;
@@ -148,7 +151,7 @@ class Milestone {
   List<Checkpoint> checkpoints;
   List<String> completedCheckpointIds;
   bool isUnlocked;
-  int timeSpentSeconds;
+  List<TimeSession> timeLog; // Changed from timeSpentSeconds
   DateTime? completedAt;
 
   Milestone({
@@ -158,14 +161,19 @@ class Milestone {
     List<String> completedCheckpointIds = const [],
     this.isUnlocked = false,
     String? id,
-    this.timeSpentSeconds = 0,
+    List<TimeSession>? timeLog,
     this.completedAt,
   })  : id = id ?? UniqueKey().toString(),
-        completedCheckpointIds = List<String>.from(completedCheckpointIds);
+        completedCheckpointIds = List<String>.from(completedCheckpointIds),
+        timeLog = timeLog ?? [];
 
-  Duration get timeSpent => Duration(seconds: timeSpentSeconds);
+  // Computed getters dynamically generated from the timeLog list
+  Duration get timeSpent =>
+      timeLog.fold(Duration.zero, (sum, session) => sum + session.duration);
 
-  DateTime? get lastWorkedOn => null; // Kept for API compatibility, but unused locally now
+  DateTime? get lastWorkedOn => timeLog.isEmpty
+      ? null
+      : timeLog.map((s) => s.timestamp).reduce((a, b) => a.isAfter(b) ? a : b);
 
   double get progress => checkpoints.isEmpty
       ? 0.0
@@ -178,21 +186,33 @@ class Milestone {
         'deadline': deadline.toIso8601String(),
         'checkpoints': checkpoints.map((c) => c.toJson()).toList(),
         'completedCheckpointIds': completedCheckpointIds,
-        'timeSpentSeconds': timeSpentSeconds,
+        'timeLog': timeLog.map((s) => s.toJson()).toList(),
         'completedAt': completedAt?.toIso8601String(),
       };
 
   factory Milestone.fromJson(Map<String, dynamic> json) {
-    int migratedTimeSpent = json['timeSpentSeconds'] ?? 0;
-    
-    // Migration: if old timeLog exists, sum its durations
+    List<TimeSession> migratedTimeLog = [];
+
+    // Migration: if the new timeLog exists, parse it directly
     if (json['timeLog'] != null) {
-      final log = (json['timeLog'] as List).map((s) => TimeSession.fromJson(s));
-      for (var session in log) {
-        migratedTimeSpent += session.duration.inSeconds;
+      migratedTimeLog = (json['timeLog'] as List)
+          .map((s) => TimeSession.fromJson(s))
+          .toList();
+    } else {
+      // Backward compatibility: Convert legacy `timeSpentSeconds` into a single bulk session
+      int legacySeconds = 0;
+      if (json['timeSpentSeconds'] != null) {
+        legacySeconds = (json['timeSpentSeconds'] as num).toInt();
+      } else if (json['timeSpent'] != null) {
+        legacySeconds = (json['timeSpent'] as num).toInt();
       }
-    } else if ((json['timeSpent'] ?? 0) > 0) {
-       migratedTimeSpent += (json['timeSpent'] as num).toInt();
+
+      if (legacySeconds > 0) {
+        migratedTimeLog.add(TimeSession(
+          timestamp: DateTime.now(), // Approximate timestamp for legacy data
+          duration: Duration(seconds: legacySeconds),
+        ));
+      }
     }
 
     return Milestone(
@@ -202,7 +222,7 @@ class Milestone {
       checkpoints: List<Checkpoint>.from(
           (json['checkpoints'] as List).map((c) => Checkpoint.fromJson(c))),
       completedCheckpointIds: List<String>.from(json['completedCheckpointIds']),
-      timeSpentSeconds: migratedTimeSpent,
+      timeLog: migratedTimeLog,
       completedAt: json['completedAt'] != null
           ? DateTime.parse(json['completedAt'])
           : null,

@@ -537,14 +537,14 @@ class _MainPageState extends State<MainPage> {
 
     if (historicalMilestones.isNotEmpty) {
       final totalHistoricalTime = historicalMilestones.fold<int>(
-          0, (sum, m) => sum + m.timeSpentSeconds);
+          0, (sum, m) => sum + m.timeSpent.inSeconds);
       final averageTime = totalHistoricalTime / historicalMilestones.length;
 
       // If completed at least 20% faster than the historical average
       if (averageTime > 0 &&
-          completedMilestone.timeSpentSeconds < averageTime * 0.8) {
+          completedMilestone.timeSpent.inSeconds < averageTime * 0.8) {
         final percentageFaster =
-            ((1 - (completedMilestone.timeSpentSeconds / averageTime)) * 100)
+            ((1 - (completedMilestone.timeSpent.inSeconds / averageTime)) * 100)
                 .toInt();
 
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -680,7 +680,7 @@ class _MainPageState extends State<MainPage> {
   }
 
   Future<void> _addTimeToMilestone(
-      String milestoneId, Duration timeToAdd) async {
+      String milestoneId, Duration timeToAdd, {String? checkpointId}) async {
     if (_activeGoal == null || timeToAdd.inSeconds <= 0) return;
 
     final persistenceService =
@@ -697,7 +697,11 @@ class _MainPageState extends State<MainPage> {
         return;
       }
 
-      milestone.timeSpentSeconds += timeToAdd.inSeconds;
+      milestone.timeLog.add(TimeSession(
+        timestamp: DateTime.now(),
+        duration: timeToAdd,
+        checkpointId: checkpointId,
+      ));
     });
     _saveGoals();
   }
@@ -750,14 +754,12 @@ class _MainPageState extends State<MainPage> {
 
   void _updateMilestoneLockStatus() {
     if (_activeGoal == null) return;
-    bool currentlyLocked = false;
+    
+    // Changed to unlock all milestones by default, allowing free progression.
+    // Previously, this locked subsequent milestones until the current one was completed.
     for (var m in _activeGoal!.milestones) {
-      bool shouldBeUnlocked = !currentlyLocked;
-      if (m.isUnlocked != shouldBeUnlocked) {
-        m.isUnlocked = shouldBeUnlocked;
-      }
-      if (!m.isCompleted) {
-        currentlyLocked = true;
+      if (!m.isUnlocked) {
+        m.isUnlocked = true;
       }
     }
   }
@@ -766,7 +768,7 @@ class _MainPageState extends State<MainPage> {
     try {
       final totalTasks = m.checkpoints.length;
       final completedTasks = m.completedCheckpointIds.length;
-      final timeSpent = m.timeSpentSeconds;
+      final timeSpent = m.timeSpent.inSeconds;
 
       if (totalTasks == 0) return "AWAITING TASKS";
       if (completedTasks == 0) return "TRAJECTORY: AWAITING FIRST COMPLETION";
