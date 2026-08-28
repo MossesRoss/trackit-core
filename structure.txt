@@ -1,0 +1,147 @@
+.
+|-- analysis_options.yaml
+|-- android
+|   |-- app
+|   |-- build.gradle.kts
+|   |-- .gitignore
+|   |-- .gradle
+|   |-- gradle
+|   |-- gradle.properties
+|   |-- gradlew
+|   |-- gradlew.bat
+|   |-- key.properties
+|   |-- .kotlin
+|   |-- local.properties
+|   |-- settings.gradle.kts
+|   `-- trackit_android.iml
+|-- assets
+|   |-- firebase-debug.log
+|   |-- google_logo.png
+|   `-- icon
+|-- build
+|   |-- 252b58e026caf3b1fbf42e6573cbddbe.cache.dill.track.dill
+|   |-- 78dd9a188e02980c2a5ac9e6935f5c94
+|   |-- app
+|   |-- cloud_firestore
+|   |-- .cxx
+|   |-- firebase_auth
+|   |-- firebase_core
+|   |-- flutter_local_notifications
+|   |-- flutter_secure_storage
+|   |-- google_sign_in_android
+|   |-- native_assets
+|   |-- native_hooks
+|   |-- path_provider_android
+|   |-- permission_handler_android
+|   `-- url_launcher_android
+|-- .dart_tool
+|   |-- dartpad
+|   |-- extension_discovery
+|   |-- flutter_build
+|   |-- package_config.json
+|   |-- package_graph.json
+|   `-- version
+|-- devtools_options.yaml
+|-- .env
+|-- firebase.json
+|-- .firebaserc
+|-- .flutter-plugins-dependencies
+|-- functions
+|   |-- .eslintrc.js
+|   |-- .gitignore
+|   |-- lib
+|   |-- node_modules
+|   |-- package.json
+|   |-- package-lock.json
+|   |-- src
+|   |-- tsconfig.dev.json
+|   `-- tsconfig.json
+|-- .git
+|   |-- branches
+|   |-- COMMIT_EDITMSG
+|   |-- config
+|   |-- description
+|   |-- FETCH_HEAD
+|   |-- gk
+|   |-- HEAD
+|   |-- hooks
+|   |-- index
+|   |-- info
+|   |-- logs
+|   |-- objects
+|   |-- ORIG_HEAD
+|   |-- packed-refs
+|   `-- refs
+|-- .github
+|   `-- workflows
+|-- .gitignore
+|-- google-apps-script
+|   |-- appsscript.json
+|   |-- code.gs
+|   `-- WeeklyReport.gs
+|-- .idea
+|   |-- AndroidProjectSystem.xml
+|   |-- caches
+|   |-- compiler.xml
+|   |-- deploymentTargetSelector.xml
+|   |-- .gitignore
+|   |-- gradle.xml
+|   |-- kotlinc.xml
+|   |-- libraries
+|   |-- migrations.xml
+|   |-- misc.xml
+|   |-- modules.xml
+|   |-- .name
+|   |-- runConfigurations
+|   |-- runConfigurations.xml
+|   |-- vcs.xml
+|   `-- workspace.xml
+|-- ios
+|   |-- Flutter
+|   |-- .gitignore
+|   |-- Runner
+|   |-- RunnerTests
+|   |-- Runner.xcodeproj
+|   `-- Runner.xcworkspace
+|-- lib
+|   |-- auth_screen.dart
+|   |-- firebase_options.dart
+|   |-- guide_page.dart
+|   |-- main.dart
+|   |-- milestones_page.dart
+|   |-- models.dart
+|   |-- notification_service.dart
+|   |-- reports_page.dart
+|   |-- services.dart
+|   |-- settings_page.dart
+|   |-- ui.dart
+|   `-- widgets
+|-- linux
+|   |-- CMakeLists.txt
+|   |-- flutter
+|   |-- .gitignore
+|   `-- runner
+|-- macos
+|   |-- Flutter
+|   |-- .gitignore
+|   |-- Runner
+|   |-- RunnerTests
+|   |-- Runner.xcodeproj
+|   `-- Runner.xcworkspace
+|-- .metadata
+|-- pubspec.lock
+|-- pubspec.yaml
+|-- README.md
+|-- SECURITY.md
+|-- structure.txt
+|-- trackit.iml
+|-- web
+|   |-- favicon.png
+|   |-- icons
+|   |-- index.html
+|   `-- manifest.json
+`-- windows
+    |-- CMakeLists.txt
+    |-- flutter
+    |-- .gitignore
+    `-- runner
